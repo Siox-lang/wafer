@@ -26,6 +26,8 @@ pub struct Manifest {
     pub toolchain: Toolchain,
     #[serde(default, rename = "test")]
     pub tests: Vec<TestTarget>,
+    #[serde(default)]
+    pub build: Build,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -75,6 +77,14 @@ pub struct Toolchain {
 pub struct TestTarget {
     pub name: String,
     pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Build {
+    /// Additional compile-time file/directory inputs outside the die roots.
+    #[serde(default)]
+    pub inputs: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -246,3 +246,63 @@ fn init_preserves_existing_files_and_gitignore() {
         "keep notes"
     );
 }
+
+#[test]
+fn clean_does_not_resolve_dependencies_or_remove_other_project_files() {
+    let dir = Directory::new();
+    die(
+        &dir.0,
+        "app",
+        "0.1.0",
+        "absent = { path = \"../does-not-exist\" }",
+    );
+    std::fs::create_dir_all(dir.0.join("target/wafer/release")).unwrap();
+    std::fs::create_dir_all(dir.0.join(".wafer/git")).unwrap();
+    for (path, data) in [
+        ("target/wafer/release/app.o", "artifact"),
+        ("target/other.bin", "other output"),
+        (".wafer/git/keep", "cache"),
+        ("Wafer.lock", "keep lock"),
+    ] {
+        std::fs::write(dir.0.join(path), data).unwrap();
+    }
+    let output = cli(&dir.0, &["clean", "--offline"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!dir.0.join("target/wafer").exists());
+    assert_eq!(
+        std::fs::read_to_string(dir.0.join("target/other.bin")).unwrap(),
+        "other output"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.0.join(".wafer/git/keep")).unwrap(),
+        "cache"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.0.join("Wafer.lock")).unwrap(),
+        "keep lock"
+    );
+    assert!(dir.0.join("src/lib.siox").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_rejects_target_and_managed_directory_symlinks() {
+    let dir = Directory::new();
+    let outside = Directory::new();
+    die(&dir.0, "app", "0.1.0", "");
+    std::fs::write(outside.0.join("sentinel"), "keep me").unwrap();
+    std::os::unix::fs::symlink(&outside.0, dir.0.join("target")).unwrap();
+    assert!(!cli(&dir.0, &["clean"]).status.success());
+    std::fs::remove_file(dir.0.join("target")).unwrap();
+    std::fs::create_dir(dir.0.join("target")).unwrap();
+    std::os::unix::fs::symlink(&outside.0, dir.0.join("target/wafer")).unwrap();
+    assert!(!cli(&dir.0, &["clean"]).status.success());
+    assert_eq!(
+        std::fs::read_to_string(outside.0.join("sentinel")).unwrap(),
+        "keep me"
+    );
+}

@@ -71,3 +71,30 @@ no LLVM/runtime or second language pipeline was added. Graphify refresh passes
 unpublished pending the owner/baseline decision; README states this explicitly.
 Build-cache/safe-clean, project configuration and full release CI remain.
 
+## 2026-10-14 — Codex — bounded artifact caching and safe cleanup
+
+Own cache/fingerprint helpers, declared build inputs, runner reuse and clean
+CLI/tests. Cache is opt-in while the compiler lacks complete dependency reporting;
+outside compile-time inputs must be explicitly declared. Hash content, not just
+timestamps, across die roots, std, compiler/tool executables, command and process
+environment; record only hashes, not environment secrets. Missing/changed output
+or corrupt stamps rebuild, failures never create a hit, and test results/waves
+are never cached. Clean removes only target/wafer, rejects ancestor symlinks,
+and retains source, lockfiles, Git checkouts and unrelated target contents.
+
+Cache/clean882362 exited/success/0, peak161927168 bytes:19 regular tests and8
+actual compiler/native scenarios, strict all-target Clippy/fmt pass. Content
+changes in dependency/std/compiler/extra inputs invalidate fingerprints;
+missing/corrupt outputs and malformed stamps rebuild. Test binaries may be
+reused but still execute. Fresh object/binary hits are observed with actual
+sioxc, and --no-cache bypasses them. Before/after hashes reject changing input
+snapshots. Symlink tests preserve outside target/object/wave sentinels. Clean
+works with missing dependencies and invalid/unread lock content, preserving
+source/Git caches/unrelated artifacts. Linker hashing applies only to native
+test linkage; object-only fingerprint units require no Clang install. Runtime
+objects are embedded in sioxc, confirmed in src/driver/build.rs, so compiler
+identity covers those bytes. Graphify refresh passes (168 nodes/361 edges).
+Cache is off by default and explicitly documents declared-input/toolchain limits;
+the user choice about compiler dependency reporting remains unanswered. No
+compiler/paper edits, remote repository, server or push in this batch.
+

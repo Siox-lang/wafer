@@ -1,5 +1,6 @@
 //! Die package identity and project graph, independent of compiler execution.
 
+mod cache;
 mod git;
 pub mod manifest;
 pub mod project;

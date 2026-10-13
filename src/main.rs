@@ -27,6 +27,11 @@ struct Cli {
     std: Option<PathBuf>,
     #[arg(long, global = true)]
     debug: bool,
+    /// Reuse artifacts from declared content inputs (external inputs need [build].inputs).
+    #[arg(long, global = true, conflicts_with = "no_cache")]
+    cache: bool,
+    #[arg(long, global = true)]
+    no_cache: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -48,6 +53,7 @@ enum Command {
     Fetch,
     Update,
     Check,
+    Clean,
     Build {
         #[arg(long)]
         top: Option<String>,
@@ -127,6 +133,10 @@ fn run(cli: Cli) -> Result<()> {
             };
             let root = path.parent().ok_or("manifest has no parent")?;
             let _lock = project::project_lock(root)?;
+            if matches!(command, Command::Clean) {
+                manifest::Manifest::read(&path)?;
+                return wafer::runner::clean(&root.join("target"));
+            }
             let project = Project::load_with_options(
                 &path,
                 ResolveOptions {
@@ -141,7 +151,9 @@ fn run(cli: Cli) -> Result<()> {
                 Command::Check | Command::Build { .. } | Command::Test { .. }
             ) {
                 let manifest = manifest::Manifest::read(&path)?;
-                let runner = Runner::configured(&manifest, root, cli.sioxc, cli.std, cli.debug)?;
+                let mut runner =
+                    Runner::configured(&manifest, root, cli.sioxc, cli.std, cli.debug)?;
+                runner.cache = cli.cache && !cli.no_cache;
                 return match command {
                     Command::Check => runner.check(&project),
                     Command::Build { top } => runner.build(&project, top.as_deref()).map(|_| ()),

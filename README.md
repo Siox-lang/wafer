@@ -89,7 +89,36 @@ native tests. Compiler and runtime errors propagate as a failing exit status.
 `--wave vcd|fst|both` writes separate files per target under the test artifact
 directory. `--debug` enables source DWARF and separate debug artifacts.
 Fresh `new/init` dies include a buildable `Top` and canonical smoke test.
-Build reuse/caching is not implemented yet.
+## Artifact cache and cleanup
+
+`build --cache` and `test --cache` opt into artifact reuse. Successful objects
+and test binaries have content fingerprints covering die roots, declared extra
+inputs, std, the compiler (including its embedded runtime objects), the native
+linker where needed, command options and the process environment. Fingerprints
+are checked again after compilation. Missing/corrupt artifacts or stamps
+rebuild; failed compilation never creates a cache hit. Test results and waveform
+files are never cached: reused test binaries still execute. `--no-cache` bypasses
+reuse. Diagnostics from successful compilations are retained on cache hits.
+
+Caching is deliberately off by default while Siox lacks a complete compile-time
+dependency report. Declare outside files/directories read during compilation:
+
+```toml
+[build]
+inputs = ["../shared/rom.bin", "../shared/constraints"]
+```
+
+Only declared inputs are covered. Undeclared external files, mutable system
+libraries or other outside toolchain inputs can invalidate that assumption;
+declare them or keep caching disabled. Root trees exclude `.git`, `.wafer` and
+`target` outputs; explicitly declared module sources are always fingerprinted.
+Caching refuses directory-tree symlinks rather than guess their dependency set.
+Environment values are hashed, not written into cache records.
+
+`wafer clean` removes only `target/wafer`. It works without resolving/fetching
+dependencies and leaves sources, `Wafer.lock`, `.wafer/git` and unrelated target
+files untouched. Artifact directories, output files and waveform paths reject
+symlinks so builds/cleanup cannot overwrite or delete a linked outside target.
 
 ## Verification
 
@@ -103,8 +132,10 @@ export WAFER_TEST_STD=/path/to/its/std
 cargo test --locked --test compiler_execution -- --ignored --nocapture --test-threads=1
 ```
 
-All 16 regular tests and five real compiler/native tests pass, along with strict
+All 19 regular tests and eight real compiler/native tests pass, along with strict
 Clippy/fmt. Native acceptance covers a fresh scaffold, local/Git dependencies,
 offline locked compilation, objects, canonical test listing/filtering/ownership,
-VCD/FST output, empty libraries and compiler/runtime failure propagation.
+VCD/FST output, empty libraries, compiler/runtime failure propagation, content
+invalidation, corrupt/missing cache entries, rerunning cached binaries and safe
+cleanup/output paths.
 

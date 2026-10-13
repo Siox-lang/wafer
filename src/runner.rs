@@ -25,6 +25,7 @@ pub struct Runner {
     pub compiler: PathBuf,
     pub std: PathBuf,
     pub debug: bool,
+    pub cache: bool,
 }
 
 impl Runner {
@@ -75,6 +76,7 @@ impl Runner {
             compiler,
             std,
             debug,
+            cache: false,
         })
     }
 
@@ -119,6 +121,11 @@ impl Runner {
             command.arg("--emit").arg(emit);
         }
         if let Some(output) = output {
+            if std::fs::symlink_metadata(output)
+                .is_ok_and(|metadata| metadata.file_type().is_symlink())
+            {
+                return Err("refusing to overwrite an artifact symlink".into());
+            }
             command.arg("--out").arg(output);
         }
         if let Some(sources) = sources {
@@ -129,12 +136,54 @@ impl Runner {
         if let Some(top) = top {
             command.arg("--top").arg(top);
         }
+        let fingerprint = if self.cache && output.is_some() {
+            let mut stable = self.command(project, entry)?;
+            if emit == "test" {
+                stable.arg("--test");
+            } else {
+                stable.arg("--emit").arg(emit);
+            }
+            if let Some(sources) = sources {
+                for source in sources {
+                    stable.arg("--test-source").arg(source);
+                }
+            }
+            if let Some(top) = top {
+                stable.arg("--top").arg(top);
+            }
+            let inputs = crate::cache::fingerprint(project, &self.compiler, &self.std, &stable)?;
+            Some((inputs, stable))
+        } else {
+            None
+        };
+        if let (Some(output), Some((inputs, _))) = (output, fingerprint.as_ref()) {
+            if let Some((stdout, stderr)) = crate::cache::lookup(output, inputs)? {
+                std::io::stderr().write_all(stderr.as_bytes())?;
+                eprintln!("Fresh {}", output.display());
+                return Ok(stdout);
+            }
+        }
         let result = command.output()?;
         std::io::stderr().write_all(&result.stderr)?;
         if !result.status.success() {
             return Err(format!("sioxc failed for {} ({})", entry.display(), result.status).into());
         }
-        Ok(String::from_utf8(result.stdout)?)
+        let stdout = String::from_utf8(result.stdout)?;
+        if let (Some(output), Some((inputs, stable))) = (output, fingerprint) {
+            if inputs != crate::cache::fingerprint(project, &self.compiler, &self.std, &stable)? {
+                return Err(
+                    "declared inputs changed during compilation; retry before caching the artifact"
+                        .into(),
+                );
+            }
+            crate::cache::record(
+                output,
+                inputs,
+                stdout.clone(),
+                String::from_utf8(result.stderr)?,
+            )?;
+        }
+        Ok(stdout)
     }
 
     pub fn check(&self, project: &Project) -> Result<()> {
@@ -158,20 +207,14 @@ impl Runner {
         self.check(project)?;
         let directory = artifact_directory(project, self.debug)?;
         let output = directory.join(format!("{}.o", package.name));
-        let temporary = directory.join(format!(".{}.{}.o", package.name, std::process::id()));
-        let result = self.compile(
+        self.compile(
             project,
             &package.entry,
             "object",
-            Some(&temporary),
+            Some(&output),
             None,
             top.or(manifest.lib.top.as_deref()),
-        );
-        if let Err(error) = result {
-            let _ = std::fs::remove_file(&temporary);
-            return Err(error);
-        }
-        std::fs::rename(temporary, &output)?;
+        )?;
         eprintln!("Built {}", output.display());
         Ok(output)
     }
@@ -214,20 +257,7 @@ impl Runner {
             let output = directory
                 .join(&filename)
                 .with_extension(std::env::consts::EXE_EXTENSION);
-            let temporary = directory.join(format!(".{filename}.{}", std::process::id()));
-            let result = self.compile(
-                project,
-                &entry,
-                "test",
-                Some(&temporary),
-                Some(&sources),
-                None,
-            );
-            if let Err(error) = result {
-                let _ = std::fs::remove_file(&temporary);
-                return Err(error);
-            }
-            std::fs::rename(temporary, &output)?;
+            self.compile(project, &entry, "test", Some(&output), Some(&sources), None)?;
             let mut command = Command::new(&output);
             command.current_dir(
                 root(project)?
@@ -239,17 +269,23 @@ impl Runner {
                 command.arg(filter);
             }
             if let Some(wave) = wave {
-                let waves = directory.join("waves");
-                std::fs::create_dir_all(&waves)?;
+                let waves = crate::cache::managed_directory(
+                    &project.target_directory,
+                    Path::new(if self.debug {
+                        "debug/tests/waves"
+                    } else {
+                        "release/tests/waves"
+                    }),
+                )?;
                 if matches!(wave, Wave::Vcd | Wave::Both) {
-                    command
-                        .arg("-o")
-                        .arg(waves.join(&filename).with_extension("vcd"));
+                    let output = waves.join(&filename).with_extension("vcd");
+                    reject_output_symlink(&output)?;
+                    command.arg("-o").arg(output);
                 }
                 if matches!(wave, Wave::Fst | Wave::Both) {
-                    command
-                        .arg("-o")
-                        .arg(waves.join(&filename).with_extension("fst"));
+                    let output = waves.join(&filename).with_extension("fst");
+                    reject_output_symlink(&output)?;
+                    command.arg("-o").arg(output);
                 }
             }
             let result = command.stdin(Stdio::null()).status()?;
@@ -268,12 +304,21 @@ impl Runner {
 }
 
 fn artifact_directory(project: &Project, debug: bool) -> Result<PathBuf> {
-    let path = project
-        .target_directory
-        .join("wafer")
-        .join(if debug { "debug" } else { "release" });
-    std::fs::create_dir_all(&path)?;
-    Ok(path)
+    crate::cache::managed_directory(
+        &project.target_directory,
+        Path::new(if debug { "debug" } else { "release" }),
+    )
+}
+
+pub fn clean(target: &Path) -> Result<()> {
+    crate::cache::clean(target)
+}
+
+fn reject_output_symlink(path: &Path) -> Result<()> {
+    if std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err(format!("refusing output symlink {}", path.display()).into());
+    }
+    Ok(())
 }
 
 fn root(project: &Project) -> Result<&Package> {

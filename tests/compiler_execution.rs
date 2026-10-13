@@ -224,3 +224,98 @@ fn real_native_execution_uses_a_git_die_offline_at_its_locked_commit() {
     assert!(String::from_utf8_lossy(&test.stdout).contains("app::smoke::Smoke ... ok"));
     assert!(!String::from_utf8_lossy(&test.stdout).contains("DoNotRun"));
 }
+
+#[test]
+#[ignore = "requires an actual sioxc with module inputs/test planning and matching std"]
+fn cached_native_artifacts_rebuild_on_content_changes_and_tests_always_run() {
+    let dir = Directory::new();
+    project(&dir.0);
+    let app = dir.0.join("app");
+    assert_success(&cli(&app, &["build", "--top", "Top", "--cache"]));
+    let fresh = cli(&app, &["build", "--top", "Top", "--cache"]);
+    assert_success(&fresh);
+    assert!(String::from_utf8_lossy(&fresh.stderr).contains("Fresh "));
+    write(
+        &dir.0,
+        "dep/src/lib.siox",
+        "module dep; pub fn answer() -> integer { return 43; }",
+    );
+    let changed = cli(&app, &["build", "--top", "Top", "--cache"]);
+    assert_success(&changed);
+    assert!(!String::from_utf8_lossy(&changed.stderr).contains("Fresh "));
+    let object = app.join("target/wafer/release/app.o");
+    std::fs::write(&object, "corrupt output").unwrap();
+    let corrupt = cli(&app, &["build", "--top", "Top", "--cache"]);
+    assert_success(&corrupt);
+    assert!(!String::from_utf8_lossy(&corrupt.stderr).contains("Fresh "));
+    assert!(std::fs::metadata(&object).unwrap().len() > "corrupt output".len() as u64);
+    let stamp = object.with_file_name("app.o.wafer-cache.json");
+    std::fs::write(&stamp, "broken stamp").unwrap();
+    let stamp_rebuild = cli(&app, &["build", "--top", "Top", "--cache"]);
+    assert_success(&stamp_rebuild);
+    assert!(!String::from_utf8_lossy(&stamp_rebuild.stderr).contains("Fresh "));
+    std::fs::remove_file(&object).unwrap();
+    let missing = cli(&app, &["build", "--top", "Top", "--cache"]);
+    assert_success(&missing);
+    assert!(!String::from_utf8_lossy(&missing.stderr).contains("Fresh "));
+    project(&dir.0);
+    assert_success(&cli(&app, &["test", "--cache"]));
+    let tests = cli(&app, &["test", "--cache"]);
+    assert_success(&tests);
+    assert!(String::from_utf8_lossy(&tests.stderr).contains("Fresh "));
+    let stdout = String::from_utf8_lossy(&tests.stdout);
+    assert!(stdout.contains("app::Unit ... ok"));
+    assert!(stdout.contains("app::smoke::Smoke ... ok"));
+    let bypass = cli(&app, &["build", "--top", "Top", "--no-cache"]);
+    assert_success(&bypass);
+    assert!(!String::from_utf8_lossy(&bypass.stderr).contains("Fresh "));
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires an actual sioxc with module inputs/test planning and matching std"]
+fn builds_never_follow_target_or_output_symlinks() {
+    let dir = Directory::new();
+    project(&dir.0);
+    let app = dir.0.join("app");
+    let outside = dir.0.join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    let sentinel = outside.join("sentinel");
+    std::fs::write(&sentinel, "preserve").unwrap();
+    std::os::unix::fs::symlink(&outside, app.join("target")).unwrap();
+    assert!(!cli(&app, &["build", "--top", "Top"]).status.success());
+    assert!(!outside.join("wafer").exists());
+    std::fs::remove_file(app.join("target")).unwrap();
+    std::fs::create_dir_all(app.join("target/wafer/release")).unwrap();
+    std::os::unix::fs::symlink(&sentinel, app.join("target/wafer/release/app.o")).unwrap();
+    assert!(!cli(&app, &["build", "--top", "Top"]).status.success());
+    assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "preserve");
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires an actual sioxc with module inputs/test planning and matching std"]
+fn wave_output_symlinks_do_not_overwrite_external_files() {
+    let dir = Directory::new();
+    project(&dir.0);
+    let app = dir.0.join("app");
+    assert_success(&cli(&app, &["test", "Smoke", "--wave", "vcd"]));
+    let waves = app.join("target/wafer/release/tests/waves");
+    let wave = std::fs::read_dir(&waves)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let sentinel = dir.0.join("outside.txt");
+    std::fs::write(&sentinel, "preserve wave sentinel").unwrap();
+    std::fs::remove_file(&wave).unwrap();
+    std::os::unix::fs::symlink(&sentinel, &wave).unwrap();
+    assert!(!cli(&app, &["test", "Smoke", "--wave", "vcd"])
+        .status
+        .success());
+    assert_eq!(
+        std::fs::read_to_string(sentinel).unwrap(),
+        "preserve wave sentinel"
+    );
+}
