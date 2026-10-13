@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use wafer::{
     manifest,
     project::{self, Project, ResolveOptions},
+    runner::{Runner, Wave},
     Result,
 };
 
@@ -20,6 +21,12 @@ struct Cli {
     locked: bool,
     #[arg(long, global = true)]
     offline: bool,
+    #[arg(long, global = true)]
+    sioxc: Option<PathBuf>,
+    #[arg(long, global = true)]
+    std: Option<PathBuf>,
+    #[arg(long, global = true)]
+    debug: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -40,6 +47,18 @@ enum Command {
     Metadata,
     Fetch,
     Update,
+    Check,
+    Build {
+        #[arg(long)]
+        top: Option<String>,
+    },
+    Test {
+        filter: Option<String>,
+        #[arg(long)]
+        list: bool,
+        #[arg(long, value_enum)]
+        wave: Option<Wave>,
+    },
 }
 
 fn scaffold(directory: &Path, name: Option<String>, new: bool) -> Result<()> {
@@ -77,9 +96,9 @@ fn scaffold(directory: &Path, name: Option<String>, new: bool) -> Result<()> {
     }
     std::fs::create_dir_all(directory.join("src"))?;
     let manifest =
-        format!("[die]\nname = {name:?}\nversion = \"0.1.0\"\n\n[lib]\npath = \"src/lib.siox\"\n");
+        format!("[die]\nname = {name:?}\nversion = \"0.1.0\"\n\n[lib]\npath = \"src/lib.siox\"\ntop = \"Top\"\n");
     std::fs::OpenOptions::new().write(true).create_new(true).open(&source)?
-        .write_all(format!("module {namespace};\n\npub fn identity(value: integer) -> integer {{ return value; }}\n").as_bytes())?;
+        .write_all(format!("module {namespace};\n\npub fn identity(value: integer) -> integer {{ return value; }}\n\npub entity Top {{ value: integer out }}\nimpl Top {{ value = identity(42); }}\n\n#[test]\nentity Smoke {{}}\nimpl Smoke {{\n    let dut: Top = {{}};\n    process {{ await 1ns; assert!(dut.value == 42, \"generated die smoke test\"); }}\n}}\n").as_bytes())?;
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -117,6 +136,21 @@ fn run(cli: Cli) -> Result<()> {
                 },
             )?;
             project.write_lock(&root.join("Wafer.lock"), cli.locked)?;
+            if matches!(
+                command,
+                Command::Check | Command::Build { .. } | Command::Test { .. }
+            ) {
+                let manifest = manifest::Manifest::read(&path)?;
+                let runner = Runner::configured(&manifest, root, cli.sioxc, cli.std, cli.debug)?;
+                return match command {
+                    Command::Check => runner.check(&project),
+                    Command::Build { top } => runner.build(&project, top.as_deref()).map(|_| ()),
+                    Command::Test { filter, list, wave } => {
+                        runner.test(&project, filter.as_deref(), list, wave)
+                    }
+                    _ => unreachable!(),
+                };
+            }
             match command {
                 Command::Metadata => println!("{}", serde_json::to_string_pretty(&project)?),
                 Command::Fetch | Command::Update => {

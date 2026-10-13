@@ -22,6 +22,10 @@ pub struct Manifest {
     pub modules: BTreeMap<String, PathBuf>,
     #[serde(default)]
     pub dependencies: BTreeMap<String, Dependency>,
+    #[serde(default)]
+    pub toolchain: Toolchain,
+    #[serde(default, rename = "test")]
+    pub tests: Vec<TestTarget>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -39,14 +43,38 @@ pub struct Die {
 #[serde(deny_unknown_fields)]
 pub struct Library {
     pub path: PathBuf,
+    #[serde(default)]
+    pub top: Option<String>,
+    #[serde(default = "enabled")]
+    pub test: bool,
 }
 
 impl Default for Library {
     fn default() -> Self {
         Self {
             path: "src/lib.siox".into(),
+            top: None,
+            test: true,
         }
     }
+}
+
+fn enabled() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Toolchain {
+    pub sioxc: Option<PathBuf>,
+    pub std: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestTarget {
+    pub name: String,
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

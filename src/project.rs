@@ -30,6 +30,7 @@ pub struct Package {
     pub version: Version,
     pub manifest_path: PathBuf,
     pub entry: PathBuf,
+    pub sources: Vec<PathBuf>,
     pub dependencies: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<GitSource>,
@@ -239,6 +240,7 @@ impl Project {
             git::verify_source(origin, &entry)?;
         }
         let namespace = manifest::namespace(&manifest.die.name)?;
+        let mut sources = vec![entry.clone()];
         if self
             .modules
             .insert(namespace.clone(), entry.clone())
@@ -251,6 +253,7 @@ impl Project {
             if let Some(origin) = &origin {
                 git::verify_source(origin, &source)?;
             }
+            sources.push(source.clone());
             if self.modules.insert(name.clone(), source).is_some() {
                 return Err(format!("duplicate source module `{name}`").into());
             }
@@ -261,6 +264,7 @@ impl Project {
             version: manifest.die.version,
             manifest_path: path.clone(),
             entry,
+            sources,
             dependencies,
             source: origin.map(|origin| origin.source),
         });

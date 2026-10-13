@@ -1,7 +1,7 @@
 # Wafer implementation
 
-- Compiler orchestration: check/build/test using the explicit module-input
-  boundary; native test filtering and waveform output; propagate failures.
+- Publish/integrate compiler prerequisites (`--module`, `--emit test-plan`,
+  `--test-source`) once the compiler commit gate/owner decision is resolved.
 - Content-based build caching and safe clean, with lock/concurrency protection.
 - Project settings usable by the separate LSP without embedding package
   discovery or build execution in the server.

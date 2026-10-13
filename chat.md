@@ -45,3 +45,29 @@ Graphify AST-only refresh completed (102 nodes/204 edges). Compiler execution,
 build caching and full native acceptance remain required; this is not the whole
 goal. No compiler/paper changes, remote repository or push in this batch.
 
+## 2026-10-14 — Codex — real compiler check/build/test orchestration
+
+Own manifest toolchain/test targets, package-owned source lists, runner module,
+CLI and native integration tests. Run the external sioxc with explicit source
+locations through its existing pipeline. Query its canonical test-plan artifact
+and source-owned selection (added in the isolated compiler worktree), not raw
+attribute scraping. Keep compiler errors/native failures visible; preserve
+source paths and select dependency tests out of package runs. Native object
+builds use the compiler's root/top selection; source-only libraries use check.
+Implement filtering/listing and per-target VCD/FST paths. Build cache remains a
+separate next slice. No fake compiler fixtures for the native acceptance gate.
+
+Native806207 exited/success/0, peak158724096 bytes:16 regular tests and5 actual
+compiler/native tests pass, strict all-target Clippy/fmt. Fresh new/init source
+now has Top + Smoke and builds/tests without manual edits. Local and Git dies
+compile/run through the actual source-input compiler, including unavailable
+remotes with offline locked pins. Object output, no-test libraries, ownership
+selection, exact once-per-target execution, listing/filtering, VCD/FST files and
+both source/native failures are verified. Compiler781291 also passed508 frontend
+library tests, module-input cases,2 frontend and3 native test-plan checks plus
+strict Clippy before Wafer integration. Canonical discovery remains in sioxc;
+no LLVM/runtime or second language pipeline was added. Graphify refresh passes
+(140 nodes/296 edges). Compatible compiler features are still uncommitted and
+unpublished pending the owner/baseline decision; README states this explicitly.
+Build-cache/safe-clean, project configuration and full release CI remain.
+
