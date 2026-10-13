@@ -201,6 +201,25 @@ impl Runner {
         Ok(())
     }
 
+    /// Explicit inputs for project-aware adapters; no LSP protocol policy here.
+    pub fn project_config(&self, project: &Project) -> Result<serde_json::Value> {
+        let package = root(project)?;
+        let manifest = Manifest::read(&package.manifest_path)?;
+        Ok(serde_json::json!({
+            "format_version": 1,
+            "manifest_path": package.manifest_path,
+            "root": package.manifest_path.parent(),
+            "compiler": crate::cache::executable(&self.compiler)?,
+            "std_root": self.std,
+            "debug": self.debug,
+            "target_directory": project.target_directory,
+            "entry": package.entry,
+            "top": manifest.lib.top,
+            "module_sources": project.modules.iter().map(|(module, path)| serde_json::json!({"module": module, "path": path})).collect::<Vec<_>>(),
+            "test_targets": test_targets(project)?.into_iter().map(|(entry, sources)| serde_json::json!({"entry": entry, "test_sources": sources})).collect::<Vec<_>>(),
+        }))
+    }
+
     pub fn build(&self, project: &Project, top: Option<&str>) -> Result<PathBuf> {
         let package = root(project)?;
         let manifest = Manifest::read(&package.manifest_path)?;

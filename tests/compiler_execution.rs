@@ -319,3 +319,34 @@ fn wave_output_symlinks_do_not_overwrite_external_files() {
         "preserve wave sentinel"
     );
 }
+
+#[test]
+#[ignore = "requires an actual sioxc with module inputs/test planning and matching std"]
+fn exported_project_settings_match_the_actual_compiler_inputs() {
+    let dir = Directory::new();
+    project(&dir.0);
+    let app = dir.0.join("app");
+    let output = cli(&app, &["project-config"]);
+    assert_success(&output);
+    let config: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(config["format_version"], 1);
+    assert_eq!(config["entry"], app.join("src/lib.siox").to_str().unwrap());
+    assert_eq!(
+        config["compiler"],
+        PathBuf::from(std::env::var_os("WAFER_TEST_SIOXC").unwrap())
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    let modules = config["module_sources"].as_array().unwrap();
+    assert!(modules.iter().any(|module| module["module"] == "dep"));
+    let tests = config["test_targets"].as_array().unwrap();
+    assert_eq!(tests.len(), 2);
+    assert!(tests.iter().all(|target| !target["test_sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|path| path.as_str().unwrap().contains("/dep/"))));
+    assert_success(&cli(&app, &["check"]));
+}

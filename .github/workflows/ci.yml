@@ -1,0 +1,56 @@
+name: Wafer
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      compiler_ref:
+        description: Compatible sioxc commit/ref with module inputs and test planning
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          components: rustfmt, clippy
+      - run: bash scripts/ci-local.sh
+
+  native:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    env:
+      LLVM_SYS_231_PREFIX: /usr/lib/llvm-23
+      WAFER_REQUIRE_NATIVE: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: Siox-lang/sioxc
+          ref: ${{ inputs.compiler_ref }}
+          path: compiler
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@1.90
+        with:
+          components: rustfmt, clippy
+      - name: Install matching LLVM and Clang
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 23
+          sudo apt-get install -y clang-23 llvm-23-dev libpolly-23-dev zlib1g-dev
+          echo '/usr/lib/llvm-23/bin' >> "$GITHUB_PATH"
+      - name: Build actual compatible compiler
+        run: cargo +1.90 build --locked --manifest-path compiler/Cargo.toml --bin sioxc
+      - name: Verify package and native behavior
+        run: |
+          export WAFER_TEST_SIOXC="$GITHUB_WORKSPACE/compiler/target/debug/sioxc"
+          export WAFER_TEST_STD="$GITHUB_WORKSPACE/compiler/std"
+          bash scripts/ci-local.sh

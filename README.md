@@ -122,6 +122,14 @@ symlinks so builds/cleanup cannot overwrite or delete a linked outside target.
 
 ## Verification
 
+`wafer project-config` uses the same `--sioxc`/`--std`, environment and manifest
+settings as the runner, and prints versioned JSON containing the original
+entry/module paths, compiler/std roots, selected top, artifact directory and
+source-owned test targets. This is the boundary for project-aware consumers
+such as the separate LSP/MCP adapters. It does not launch those servers or
+claim the current LSP already consumes this schema. Package discovery and
+execution remain in Wafer.
+
 ```bash
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
@@ -132,10 +140,22 @@ export WAFER_TEST_STD=/path/to/its/std
 cargo test --locked --test compiler_execution -- --ignored --nocapture --test-threads=1
 ```
 
-All 19 regular tests and eight real compiler/native tests pass, along with strict
+All 19 regular tests and nine real compiler/native tests pass, along with strict
 Clippy/fmt. Native acceptance covers a fresh scaffold, local/Git dependencies,
 offline locked compilation, objects, canonical test listing/filtering/ownership,
 VCD/FST output, empty libraries, compiler/runtime failure propagation, content
 invalidation, corrupt/missing cache entries, rerunning cached binaries and safe
 cleanup/output paths.
+
+`bash scripts/ci-local.sh` runs formatting, regular tests and strict Clippy;
+with `WAFER_TEST_SIOXC`/`WAFER_TEST_STD` it also runs the complete native gate.
+Set `WAFER_REQUIRE_NATIVE=1` to reject a missing compiler configuration rather
+than report an unrun native stage as green. On the shared host use the compiler
+checkout's `scripts/guarded-run.sh` launcher, one job at a time.
+
+GitHub CI runs package checks on pushes/PRs. The manual native workflow requires
+an explicit `compiler_ref` with the needed compiler interfaces, builds it with
+matching LLVM 23/Clang, and runs the same gate. It cannot run against the current
+published compiler revision until the prerequisite changes are integrated.
+Local validation does not claim a GitHub Actions run or a published release.
 

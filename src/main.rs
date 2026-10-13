@@ -50,6 +50,7 @@ enum Command {
         name: Option<String>,
     },
     Metadata,
+    ProjectConfig,
     Fetch,
     Update,
     Check,
@@ -148,7 +149,10 @@ fn run(cli: Cli) -> Result<()> {
             project.write_lock(&root.join("Wafer.lock"), cli.locked)?;
             if matches!(
                 command,
-                Command::Check | Command::Build { .. } | Command::Test { .. }
+                Command::Check
+                    | Command::Build { .. }
+                    | Command::Test { .. }
+                    | Command::ProjectConfig
             ) {
                 let manifest = manifest::Manifest::read(&path)?;
                 let mut runner =
@@ -156,6 +160,13 @@ fn run(cli: Cli) -> Result<()> {
                 runner.cache = cli.cache && !cli.no_cache;
                 return match command {
                     Command::Check => runner.check(&project),
+                    Command::ProjectConfig => {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&runner.project_config(&project)?)?
+                        );
+                        Ok(())
+                    }
                     Command::Build { top } => runner.build(&project, top.as_deref()).map(|_| ()),
                     Command::Test { filter, list, wave } => {
                         runner.test(&project, filter.as_deref(), list, wave)

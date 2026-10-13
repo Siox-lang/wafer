@@ -98,3 +98,24 @@ Cache is off by default and explicitly documents declared-input/toolchain limits
 the user choice about compiler dependency reporting remains unanswered. No
 compiler/paper edits, remote repository, server or push in this batch.
 
+## 2026-10-14 — Codex — project configuration and release checks
+
+Own project-config JSON export, CI workflow and reproducible acceptance script.
+Export resolved compiler/std/source settings through the same runner config;
+do not implement package discovery inside LSP or claim its adapter consumes
+new settings already. Native CI requires an explicitly supplied compatible
+compiler revision while prerequisites remain unpublished. Regular CI remains
+LLVM-free; the local native acceptance gate uses the actual development binary.
+Keep full goal active until prerequisites/acceptance are actually resolved.
+
+Project/CI890153 exited/success/0, peak154013696:19 regular tests and9 actual
+compiler/native cases pass through scripts/ci-local.sh with native required.
+Project-config JSON matches runner compiler/std/entry/module settings and
+excludes dependency sources from package test roots. Bash syntax/YAML parsing
+checks pass; GitHub Actions was not run and no remote repo exists. Regular CI
+is LLVM-free; manual native CI takes an explicit compatible compiler_ref and
+builds the real compiler with its libraries. No invented published commit or
+silent native skip. Graphify refresh passes (176 nodes/374 edges).
+Goal remains incomplete pending compiler integration/owner-gate decision and
+the final compatible-revision acceptance audit. No push or server work.
+
