@@ -21,3 +21,27 @@ compiler Git dependency. This does not verify Git fetching or native builds;
 those commands are not implemented yet. Next own Git source/cache/lock support
 and actual compiler orchestration. No remote repository or push was created.
 
+## 2026-10-14 — Codex — Git dies and reproducible resolution
+
+Own dependency manifest validation, project resolution/lock records, CLI
+offline/update options and new Git cache module/tests. Pins belong in
+Wafer.lock; normal commands reuse pins and update is explicit. Git path
+dependencies must stay inside their locked checkout. Reject dirty caches
+without deleting edits, unsafe transports and option-like revisions. Test
+real local Git repos, including moved refs and unavailable remotes. No registry
+server or compiler pipeline changes. Keep the compiler module-input commit
+pending the user's baseline-gate decision; it is not a blocker to this work.
+
+Git gate752660 exited/success/0, peak110501888 bytes:16 tests total (8 package
+and8 actual-Git scenarios), strict all-target Clippy/fmt pass. Source pins keep
+the exact commit until update; detached worktrees share objects with the mirror.
+Offline/missing-remote sessions retain pins, failed/locked updates leave the
+lock unchanged, dirty checkouts preserve edits, and Git sibling path dies
+inherit the same revision. Helper transports, embedded credentials, bad source
+specs/revisions/subdirectories, untracked source inputs and checkout escapes
+are rejected. SHA-256 identifies URL cache directories; the sha2 dependency
+is for stable cache identities, not a custom Git object hash implementation.
+Graphify AST-only refresh completed (102 nodes/204 edges). Compiler execution,
+build caching and full native acceptance remain required; this is not the whole
+goal. No compiler/paper changes, remote repository or push in this batch.
+

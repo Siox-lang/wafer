@@ -1,7 +1,5 @@
 # Wafer implementation
 
-- Git dies: pinned commits, transitive dependencies, offline cache and update;
-  preserve path/version validation and reject unsafe Git transports/options.
 - Compiler orchestration: check/build/test using the explicit module-input
   boundary; native test filtering and waveform output; propagate failures.
 - Content-based build caching and safe clean, with lock/concurrency protection.

@@ -7,7 +7,7 @@ use std::{
 use clap::{Parser, Subcommand};
 use wafer::{
     manifest,
-    project::{self, Project},
+    project::{self, Project, ResolveOptions},
     Result,
 };
 
@@ -18,6 +18,8 @@ struct Cli {
     manifest_path: Option<PathBuf>,
     #[arg(long, global = true)]
     locked: bool,
+    #[arg(long, global = true)]
+    offline: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -37,6 +39,7 @@ enum Command {
     },
     Metadata,
     Fetch,
+    Update,
 }
 
 fn scaffold(directory: &Path, name: Option<String>, new: bool) -> Result<()> {
@@ -105,11 +108,20 @@ fn run(cli: Cli) -> Result<()> {
             };
             let root = path.parent().ok_or("manifest has no parent")?;
             let _lock = project::project_lock(root)?;
-            let project = Project::load(&path)?;
+            let project = Project::load_with_options(
+                &path,
+                ResolveOptions {
+                    offline: cli.offline,
+                    locked: cli.locked,
+                    update: matches!(command, Command::Update),
+                },
+            )?;
             project.write_lock(&root.join("Wafer.lock"), cli.locked)?;
             match command {
                 Command::Metadata => println!("{}", serde_json::to_string_pretty(&project)?),
-                Command::Fetch => eprintln!("Resolved {} local dies", project.dies.len()),
+                Command::Fetch | Command::Update => {
+                    eprintln!("Resolved {} dies", project.dies.len())
+                }
                 _ => unreachable!(),
             }
             Ok(())

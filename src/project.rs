@@ -8,9 +8,12 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    git::{self, Origin},
     manifest::{self, Manifest},
     Result,
 };
+
+pub use crate::git::GitSource;
 
 #[derive(Debug, Serialize)]
 pub struct Project {
@@ -28,6 +31,8 @@ pub struct Package {
     pub manifest_path: PathBuf,
     pub entry: PathBuf,
     pub dependencies: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<GitSource>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -43,6 +48,23 @@ struct LockedDie {
     name: String,
     version: Version,
     dependencies: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<GitSource>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ResolveOptions {
+    pub offline: bool,
+    pub locked: bool,
+    pub update: bool,
+}
+
+struct Resolution {
+    cache: PathBuf,
+    pins: BTreeMap<String, GitSource>,
+    options: ResolveOptions,
+    visiting: BTreeSet<PathBuf>,
+    visited: BTreeMap<PathBuf, usize>,
 }
 
 pub fn discover(start: &Path) -> Result<PathBuf> {
@@ -79,7 +101,36 @@ pub fn project_lock(root: &Path) -> Result<File> {
 
 impl Project {
     pub fn load(path: &Path) -> Result<Self> {
+        Self::load_with_options(path, ResolveOptions::default())
+    }
+
+    pub fn load_with_options(path: &Path, options: ResolveOptions) -> Result<Self> {
+        if options.locked && options.update {
+            return Err("update cannot change --locked resolution".into());
+        }
+        if options.offline && options.update {
+            return Err("update requires access to Git remotes; omit --offline".into());
+        }
         let path = path.canonicalize()?;
+        let lock_path = path
+            .parent()
+            .ok_or("manifest has no parent")?
+            .join("Wafer.lock");
+        let pins = if lock_path.exists() {
+            let lock: Lockfile = toml::from_str(&std::fs::read_to_string(&lock_path)?)?;
+            if lock.version != 1 {
+                return Err("unsupported Wafer.lock format version".into());
+            }
+            lock.die
+                .into_iter()
+                .filter_map(|die| die.source.map(|source| (die.name, source)))
+                .collect()
+        } else {
+            if options.locked {
+                return Err("Wafer.lock is missing; rerun without --locked".into());
+            }
+            BTreeMap::new()
+        };
         let root = Manifest::read(&path)?.die.name;
         let target_directory = path
             .parent()
@@ -92,35 +143,68 @@ impl Project {
             modules: BTreeMap::new(),
             target_directory,
         };
-        let mut visiting = BTreeSet::new();
-        let mut visited = BTreeMap::new();
-        project.visit(&path, &mut visiting, &mut visited)?;
+        let mut resolution = Resolution {
+            cache: path
+                .parent()
+                .ok_or("manifest has no parent")?
+                .join(".wafer/git"),
+            pins,
+            options,
+            visiting: BTreeSet::new(),
+            visited: BTreeMap::new(),
+        };
+        project.visit(&path, None, &mut resolution)?;
         Ok(project)
     }
 
     fn visit(
         &mut self,
         path: &Path,
-        visiting: &mut BTreeSet<PathBuf>,
-        visited: &mut BTreeMap<PathBuf, usize>,
+        origin: Option<Origin>,
+        resolution: &mut Resolution,
     ) -> Result<usize> {
         let path = path.canonicalize()?;
-        if visiting.contains(&path) {
+        if resolution.visiting.contains(&path) {
             return Err(format!("dependency cycle at {}", path.display()).into());
         }
-        if let Some(index) = visited.get(&path) {
+        if let Some(index) = resolution.visited.get(&path) {
             return Ok(*index);
         }
-        visiting.insert(path.clone());
+        resolution.visiting.insert(path.clone());
+        if let Some(origin) = &origin {
+            git::verify_source(origin, &path)?;
+        }
         let manifest = Manifest::read(&path)?;
         let root = path.parent().ok_or("manifest has no parent")?;
         let mut dependencies = Vec::new();
         for (name, dependency) in &manifest.dependencies {
-            let index = self.visit(
-                &root.join(&dependency.path).join("Die.toml"),
-                visiting,
-                visited,
-            )?;
+            let (dependency_path, dependency_origin) = if let Some(relative) = &dependency.path {
+                let path = root.join(relative).join("Die.toml").canonicalize()?;
+                let mut inherited = origin.clone();
+                if let Some(inherited) = &mut inherited {
+                    if !path.starts_with(&inherited.checkout) {
+                        return Err("a Git die path dependency escapes its locked checkout".into());
+                    }
+                    inherited.source.subdir = path
+                        .parent()
+                        .ok_or("manifest has no parent")?
+                        .strip_prefix(&inherited.checkout)?
+                        .to_path_buf();
+                }
+                (path, inherited)
+            } else {
+                let origin = git::obtain(
+                    &resolution.cache,
+                    dependency,
+                    resolution.pins.get(name),
+                    resolution.options,
+                )?;
+                (
+                    origin.checkout.join(&origin.source.subdir).join("Die.toml"),
+                    Some(origin),
+                )
+            };
+            let index = self.visit(&dependency_path, dependency_origin, resolution)?;
             let found = &self.dies[index];
             if &found.name != name {
                 return Err(format!(
@@ -151,6 +235,9 @@ impl Project {
             .into());
         }
         let entry = manifest::source_path(root, &manifest.lib.path)?;
+        if let Some(origin) = &origin {
+            git::verify_source(origin, &entry)?;
+        }
         let namespace = manifest::namespace(&manifest.die.name)?;
         if self
             .modules
@@ -160,11 +247,11 @@ impl Project {
             return Err(format!("colliding die namespace `{namespace}`").into());
         }
         for (name, relative) in &manifest.modules {
-            if self
-                .modules
-                .insert(name.clone(), manifest::source_path(root, relative)?)
-                .is_some()
-            {
+            let source = manifest::source_path(root, relative)?;
+            if let Some(origin) = &origin {
+                git::verify_source(origin, &source)?;
+            }
+            if self.modules.insert(name.clone(), source).is_some() {
                 return Err(format!("duplicate source module `{name}`").into());
             }
         }
@@ -175,9 +262,10 @@ impl Project {
             manifest_path: path.clone(),
             entry,
             dependencies,
+            source: origin.map(|origin| origin.source),
         });
-        visiting.remove(&path);
-        visited.insert(path, index);
+        resolution.visiting.remove(&path);
+        resolution.visited.insert(path, index);
         Ok(index)
     }
 
@@ -189,6 +277,7 @@ impl Project {
                 name: package.name.clone(),
                 version: package.version.clone(),
                 dependencies: package.dependencies.clone(),
+                source: package.source.clone(),
             })
             .collect::<Vec<_>>();
         die.sort_by(|a, b| a.name.cmp(&b.name));

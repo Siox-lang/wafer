@@ -52,7 +52,14 @@ impl Default for Library {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dependency {
-    pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdir: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<VersionReq>,
 }
@@ -102,8 +109,32 @@ impl Manifest {
                 identifier(segment)?;
             }
         }
-        for name in manifest.dependencies.keys() {
+        for (name, dependency) in &manifest.dependencies {
             namespace(name)?;
+            if dependency.path.is_some() == dependency.git.is_some() {
+                return Err(format!("dependency `{name}` needs exactly one of path or git").into());
+            }
+            if dependency.path.is_some()
+                && (dependency.rev.is_some() || dependency.subdir.is_some())
+            {
+                return Err(format!("dependency `{name}`: rev/subdir require git").into());
+            }
+            if let Some(url) = &dependency.git {
+                crate::git::validate_url(url)?;
+            }
+            if dependency.rev.as_ref().is_some_and(|rev| {
+                rev.is_empty() || rev.starts_with('-') || rev.chars().any(char::is_control)
+            }) {
+                return Err(format!("dependency `{name}` has an invalid Git revision").into());
+            }
+            if dependency.subdir.as_ref().is_some_and(|path| {
+                !path.is_relative()
+                    || path
+                        .components()
+                        .any(|part| matches!(part, std::path::Component::ParentDir))
+            }) {
+                return Err(format!("dependency `{name}` has an invalid Git subdirectory").into());
+            }
         }
         Ok(manifest)
     }
