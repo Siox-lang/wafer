@@ -832,11 +832,7 @@ fn hash_compiler_version<T: UnitTargetData>(
 ) {
     let data = match bcx.target_data.compiler() {
         CompilerRef::Sioxc(compiler) => {
-            // shortcut: namespace facts are not a binary/ABI key; add that before native cache reuse.
-            "sioxc".hash(hasher);
-            compiler.verbose_version.hash(hasher);
-            compiler.native_target.hash(hasher);
-            compiler.host_cfg.hash(hasher);
+            compiler.fingerprint().hash(hasher);
             return;
         }
         CompilerRef::Rust(data) => data,

@@ -24,10 +24,14 @@
   uplift/export paths through `CompilationFiles`; verify real object/test outputs.
 - [x] Share runner state, jobserver/layout preparation and dry-run output collection;
   distinguish native objects from executables and reject unsupported artifacts/LTO early.
+- [x] Include actual compiler executable contents in unit namespaces and fingerprints;
+  verify identical versions/sizes/mtimes cannot conceal changed executable bytes.
+- [x] Share persisted fingerprint comparison and fresh/dirty job preparation for native
+  units; verify real inputs, missing/corrupt sidecars and interrupted-job invalidation.
 - Adapt external commands and remaining compiler/registry environment contracts.
 - Integrate dependency-sidecar collection and build-unit fingerprints with Siox execution.
-  Include the actual compiler/ABI-feature identity, not just its semantic version:
-  embedded core/runtime and default vs bitpack builds can differ at the same version.
+  Track execution environment/selected std and external tools/libraries, not only
+  the already captured compiler binary, before enabling native build-cache reuse.
 - Integrate Sioxc execution with the shared runner; wire actual compiler artifact
   names and selected Sioxc flags without Rust crate formats. Validate build-owned
   output/query options before constructing an executing command.
@@ -43,8 +47,8 @@ This is a new integration effort, not the earlier standalone Wafer's60% estimate
 Copying upstream functionality does not prove it works with Siox.
 
 Verified adapter: 23 executable CLI/Git/metadata/planning tests, four source-tracking
-regressions for both tools, one actual Sioxc probe integration,
-168 library tests (143 upstream, native selection/planning/dep-info/process/artifacts/runner explicitly enabled), formatting
+regressions for both tools, two actual Sioxc toolchain integrations,
+169 library tests (143 upstream, native selection/planning/dep-info/process/artifacts/runner/fingerprints explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
 Cargo-driven Siox compilation and compiled dependency libraries remain
 unsupported, not silently delegated to Rust. Compiler query

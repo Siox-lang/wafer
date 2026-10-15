@@ -595,3 +595,55 @@ runner milestone and publish it with the preceding artifact-layout commit to
 origin/feat/siox-adapter, without changing main. Completion estimate40% of the
 Cargo-based Wafer integration; compiler/corpus WIP stays local under its separate
 green-gate requirement. Preserve all unrelated worktrees and uncommitted changes.
+
+## 2026-10-15 — Codex: native compiler identity and shared fingerprints
+
+Own util/sioxc.rs, artifact compiler hashing, the existing fingerprint module
+and focused native acceptance. Pin actual compiler selection using its effective
+query environment and stream executable bytes through Cargo's existing SHA256
+helper: same release/version is not sufficient for embedded core/runtime or ABI
+feature changes. Reuse Cargo's existing persisted fingerprints and dependency
+tracking rather than a second freshness cache. Preserve Rust behavior and keep
+normal Siox CLI execution disabled until scheduler/argument/artifact integration
+is ready. No LLVM/compiler edits, new dependencies or push authorization.
+Peer345550 currently owns the verification lock; do not interrupt its live CI.
+
+Native identity/shared-fingerprint code and regressions are now written, not yet
+verified. Retained exec session97541 (own wait shell367741) is queued behind
+the confirmed live peer345550, then launches the complete fork fmt/library/
+integration/strict-Clippy/AST gate. Resume this same handle for its eventual
+systemd unit/log and terminal result; do not launch duplicate verification.
+Expected selected count198 (169 library plus29 integration), subject to actual
+results. Keep source frozen while queued/live. No commit, push, cache-hit CLI
+support or full native freshness/ABI guarantee is claimed at this point.
+
+Waiter97541/367741 disappeared before launching any service: systemd records
+and log mtimes confirm no new gate exists, while peer345550 remains live in
+corpus verification. Do not infer a failed/passed test or restart live work.
+With no verifier running/queued on this source, added direct fresh/dirty Job
+checks, interrupted-job invalidation and missing-sidecar coverage to the same
+native regression. Recorded the external-tool/library identity limit explicitly.
+Launch the full gate only when the peer releases the lock; use a retained
+systemd service for the actual verification, not another fragile terminal waiter.
+
+## 2026-10-16 — Codex: native identity/shared fingerprint gate green
+
+Peer345550 completed its clean-clone CI with exit0 and released the lock. The
+actual fork gate siox-job-3000-1792101564944479491-413765.service then finished
+exited/success/0, peak1558700032 bytes. All198 selected Rust tests pass:
+169 library plus29 integration tests (native child results not double-counted).
+The native regression verifies persisted fresh/dirty jobs, source changes,
+missing outputs/sidecars, corrupt input records, interrupted-job invalidation,
+and explicit checksum-freshness rejection. Actual same-version native compiler
+copies with equal size/mtime but different bytes produce different identities;
+identical copies at different paths share identity. Effective configured PATH
+selection skips non-executables and pins the selected absolute executable.
+Existing native object/test/VCD and Cargo reference build/run acceptance remain
+green. Fmt and strict relevant-target Clippy pass; AST update8831 nodes/20108 edges.
+
+Source is unchanged after this accepted gate; docs/evidence only. Scope estimate
+43% of Cargo-based Wafer integration. Normal Siox CLI builds remain disabled:
+native queue execution, validated arguments/artifact collection, execution inputs
+and external tool identity, compiled-library metadata/linking and test batching
+remain. No LLVM edits, compiler gate waiver, new dependencies or push. The
+compiler narrowing root-cause handoff is logged separately in main chat.md.

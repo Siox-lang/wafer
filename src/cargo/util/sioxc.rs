@@ -1,9 +1,9 @@
 //! Actual Sioxc toolchain queries; no Rust query output is fabricated.
 
 use crate::core::compiler::apply_env_config;
-use crate::util::{CargoResult, GlobalContext};
+use crate::util::{CargoResult, GlobalContext, hash_u64};
 use anyhow::{Context as _, bail};
-use cargo_util::ProcessBuilder;
+use cargo_util::{ProcessBuilder, Sha256};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -14,10 +14,12 @@ pub struct Sioxc {
     pub native_target: String,
     pub host_cfg: Vec<cargo_platform::Cfg>,
     pub verbose_version: String,
+    executable_hash: [u8; 32],
 }
 
 impl Sioxc {
     pub fn new(path: PathBuf, gctx: &GlobalContext) -> CargoResult<Self> {
+        let path = resolve_executable(&Self::command(&path, gctx)?)?;
         let mut command = Self::command(&path, gctx)?;
         command.arg("-vV");
         let verbose_version = output(&command).context("failed to query Sioxc version")?;
@@ -40,6 +42,7 @@ impl Sioxc {
         if host_cfg.is_empty() {
             bail!("Sioxc returned no execution-host cfg facts");
         }
+        let executable_hash = Sha256::new().update_path(&path)?.finish();
         Ok(Self {
             path,
             version,
@@ -47,7 +50,20 @@ impl Sioxc {
             native_target,
             host_cfg,
             verbose_version,
+            executable_hash,
         })
+    }
+
+    /// Include executable bytes: embedded core/runtime and ABI features can share a version.
+    pub fn fingerprint(&self) -> u64 {
+        // shortcut: external tools/libraries are not included; track them before claiming full toolchain identity.
+        hash_u64((
+            "sioxc",
+            self.executable_hash,
+            &self.verbose_version,
+            &self.native_target,
+            &self.host_cfg,
+        ))
     }
 
     fn command(path: &Path, gctx: &GlobalContext) -> CargoResult<ProcessBuilder> {
@@ -80,6 +96,40 @@ impl Sioxc {
         }
         Ok(filename.to_owned())
     }
+}
+
+fn resolve_executable(command: &ProcessBuilder) -> CargoResult<PathBuf> {
+    let program = Path::new(command.get_program());
+    let cwd = command
+        .get_cwd()
+        .expect("Sioxc query sets its working directory");
+    if program.components().count() > 1 || program.is_absolute() {
+        return Ok(cwd.join(program));
+    }
+    let path = command.get_env("PATH").context("no PATH for Sioxc")?;
+    for directory in std::env::split_paths(&path) {
+        let candidate = cwd.join(directory).join(program);
+        for candidate in std::iter::once(candidate.clone()).chain(
+            (!std::env::consts::EXE_EXTENSION.is_empty())
+                .then(|| candidate.with_extension(std::env::consts::EXE_EXTENSION)),
+        ) {
+            if !candidate.is_file() {
+                continue;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if candidate.metadata()?.permissions().mode() & 0o111 == 0 {
+                    continue;
+                }
+            }
+            return Ok(candidate);
+        }
+    }
+    bail!(
+        "no executable for `{}` found in Sioxc PATH",
+        program.display()
+    )
 }
 
 fn output(command: &ProcessBuilder) -> CargoResult<String> {

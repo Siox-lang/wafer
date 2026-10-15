@@ -401,15 +401,25 @@ use crate::util::{StableHasher, internal, path_args};
 use crate::{CARGO_ENV, GlobalContext};
 
 use super::custom_build::BuildDeps;
-use super::{BuildContext, BuildRunner, FileFlavor, Job, Unit, Work};
+use super::{BuildContext, BuildRunner, CompilerRef, FileFlavor, Job, Unit, UnitTargetData, Work};
 
 pub use self::dep_info::Checksum;
-// Modified for Wafer: select the actual compiler's input format in the shared translator.
+// Modified for Wafer: share persisted fingerprints and actual compiler-specific input formats.
 pub use self::dep_info::DepInfoFormat;
 pub use self::dep_info::parse_dep_info;
 pub use self::dep_info::parse_rustc_dep_info;
 pub use self::dep_info::translate_dep_info;
 pub use self::dirty_reason::DirtyReason;
+
+#[cfg(test)]
+mod tests;
+
+fn compiler_fingerprint<T: UnitTargetData>(bcx: &BuildContext<'_, '_, T>) -> u64 {
+    match bcx.target_data.compiler() {
+        CompilerRef::Rust(data) => util::hash_u64(&data.rustc.verbose_version),
+        CompilerRef::Sioxc(compiler) => compiler.fingerprint(),
+    }
+}
 
 /// Determines if a [`Unit`] is up-to-date, and if not prepares necessary work to
 /// update the persisted fingerprint.
@@ -429,12 +439,17 @@ pub use self::dirty_reason::DirtyReason;
     skip(build_runner, unit),
     fields(package_id = %unit.pkg.package_id(), target = unit.target.name())
 )]
-pub fn prepare_target(
-    build_runner: &mut BuildRunner<'_, '_>,
+pub fn prepare_target<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
     unit: &Unit,
     force: bool,
 ) -> CargoResult<Job> {
     let bcx = build_runner.bcx;
+    anyhow::ensure!(
+        !matches!(bcx.target_data.compiler(), CompilerRef::Sioxc(_))
+            || !bcx.gctx.cli_unstable().checksum_freshness,
+        "Sioxc dependency sidecars do not provide checksum-freshness records"
+    );
     let loc = build_runner.files().fingerprint_file_path(unit, "");
 
     debug!("fingerprint at: {}", loc.display());
@@ -1328,8 +1343,8 @@ impl hash::Hash for Fingerprint {
 }
 
 impl DepFingerprint {
-    fn new(
-        build_runner: &mut BuildRunner<'_, '_>,
+    fn new<T: UnitTargetData>(
+        build_runner: &mut BuildRunner<'_, '_, T>,
         parent: &Unit,
         dep: &UnitDep,
     ) -> CargoResult<DepFingerprint> {
@@ -1433,7 +1448,10 @@ impl StaleItem {
 ///
 /// Information like file modification time is only calculated for path
 /// dependencies.
-fn calculate(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<Arc<Fingerprint>> {
+fn calculate<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
+    unit: &Unit,
+) -> CargoResult<Arc<Fingerprint>> {
     // This function is slammed quite a lot, so the result is memoized.
     if let Some(s) = build_runner.fingerprints.get(unit) {
         return Ok(Arc::clone(s));
@@ -1468,8 +1486,8 @@ fn calculate(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
 
 /// Calculate a fingerprint for a "normal" unit, or anything that's not a build
 /// script. This is an internal helper of [`calculate`], don't call directly.
-fn calculate_normal(
-    build_runner: &mut BuildRunner<'_, '_>,
+fn calculate_normal<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
     unit: &Unit,
 ) -> CargoResult<Fingerprint> {
     let deps = {
@@ -1561,7 +1579,7 @@ fn calculate_normal(
     declared_features.sort(); // to avoid useless rebuild if the user orders it's features
     // differently
     Ok(Fingerprint {
-        rustc: util::hash_u64(&build_runner.bcx.rustc().verbose_version),
+        rustc: compiler_fingerprint(build_runner.bcx),
         target: util::hash_u64(&unit.target),
         profile: profile_hash,
         // Note that .0 is hashed here, not .1 which is the cwd. That doesn't
@@ -1582,8 +1600,8 @@ fn calculate_normal(
 
 /// Calculate a fingerprint for an "execute a build script" unit.  This is an
 /// internal helper of [`calculate`], don't call directly.
-fn calculate_run_custom_build(
-    build_runner: &mut BuildRunner<'_, '_>,
+fn calculate_run_custom_build<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
     unit: &Unit,
 ) -> CargoResult<Fingerprint> {
     assert!(unit.mode.is_run_custom_build());
@@ -1636,7 +1654,7 @@ See https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-change
 
     Ok(Fingerprint {
         local: Mutex::new(local),
-        rustc: util::hash_u64(&build_runner.bcx.rustc().verbose_version),
+        rustc: compiler_fingerprint(build_runner.bcx),
         deps,
         outputs: if overridden { Vec::new() } else { vec![output] },
         rustflags,
@@ -1684,8 +1702,8 @@ See https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-change
 /// FIXME(#6779) - see all the words above
 ///
 /// [`RunCustomBuild`]: crate::core::compiler::CompileMode::RunCustomBuild
-fn build_script_local_fingerprints(
-    build_runner: &mut BuildRunner<'_, '_>,
+fn build_script_local_fingerprints<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
     unit: &Unit,
 ) -> CargoResult<(
     Box<
@@ -1765,8 +1783,8 @@ fn build_script_local_fingerprints(
 
 /// Create a [`LocalFingerprint`] for an overridden build script.
 /// Returns None if it is not overridden.
-fn build_script_override_fingerprint(
-    build_runner: &mut BuildRunner<'_, '_>,
+fn build_script_override_fingerprint<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
     unit: &Unit,
 ) -> Option<LocalFingerprint> {
     // Build script output is only populated at this stage when it is
@@ -1843,7 +1861,10 @@ fn write_fingerprint(loc: &Path, fingerprint: &Fingerprint) -> CargoResult<()> {
 }
 
 /// Prepare for work when a package starts to build
-pub fn prepare_init(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<()> {
+pub fn prepare_init<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
+    unit: &Unit,
+) -> CargoResult<()> {
     let new1 = build_runner.files().fingerprint_dir(unit);
 
     // Doc tests have no output, thus no fingerprint.
@@ -1856,13 +1877,16 @@ pub fn prepare_init(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> Carg
 
 /// Returns the location that the dep-info file will show up at
 /// for the [`Unit`] specified.
-pub fn dep_info_loc(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> PathBuf {
+pub fn dep_info_loc<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
+    unit: &Unit,
+) -> PathBuf {
     build_runner.files().fingerprint_file_path(unit, "dep-")
 }
 
 /// Returns an absolute path that build directory.
 /// All paths are rewritten to be relative to this.
-fn build_root(build_runner: &BuildRunner<'_, '_>) -> PathBuf {
+fn build_root<T: UnitTargetData>(build_runner: &BuildRunner<'_, '_, T>) -> PathBuf {
     build_runner.bcx.ws.build_dir().into_path_unlocked()
 }
 
@@ -1938,7 +1962,10 @@ fn _compare_old_fingerprint(
 }
 
 /// Calculates the fingerprint of a unit thats contains no dep-info files.
-fn pkg_fingerprint(bcx: &BuildContext<'_, '_>, pkg: &Package) -> CargoResult<String> {
+fn pkg_fingerprint<T: UnitTargetData>(
+    bcx: &BuildContext<'_, '_, T>,
+    pkg: &Package,
+) -> CargoResult<String> {
     let source_id = pkg.package_id().source_id();
     let sources = bcx.packages.sources();
 

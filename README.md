@@ -57,12 +57,22 @@ source-level last-modified fingerprint follows those same selected files.
 Sioxc dependency sidecars feed Cargo's existing encoded dependency inputs through
 a compiler-specific reader. Actual native acceptance verifies literal filenames,
 package/build-root rebasing, preserved symlink aliases and old-cache preservation
-on malformed input. This does not yet execute Siox builds or decide cache hits;
-build-unit fingerprints, execution, packaging and update/fetch remain unadapted.
+on malformed input. Native units now use Cargo's existing persisted fingerprint
+calculation, comparison and fresh/dirty job preparation. Actual native acceptance
+covers source changes, missing outputs/sidecars, corrupt records and invalidation
+of an old fingerprint before a dirty job. This is API-level freshness support,
+not scheduler-driven Siox builds; execution, packaging and update/fetch remain unadapted.
+Sioxc sidecars do not provide checksum records, so checksum-freshness is rejected.
 
 The compiler adapter API selects `SIOXC`, then `build.sioxc` (including
 `WAFER_BUILD_SIOXC`), then `sioxc` on PATH. It queries Sioxc's own verbose
 version, execution-host cfg facts, native target and default artifact filenames.
+The executable is resolved against the query process's effective PATH and pinned
+to an absolute path before queries or native invocations. Artifact namespaces and
+persisted fingerprints include a streamed SHA256 of its contents, so embedded
+core/runtime or ABI-feature changes do not hide behind an unchanged release.
+External tools/libraries and execution-environment inputs still need integration
+before this can be treated as a complete native build-cache identity.
 Dependency filtering uses the execution host and its matching cfg facts, not
 LLVM's potentially different native design triple. This requires the new
 compiler-owned `-vV`/`--print` interface in the local `feat/toolchain-queries`
@@ -104,8 +114,9 @@ does not yet connect Siox units to Cargo's scheduler or enable CLI builds.
 The artifact adapter also uses Cargo's `CompilationFiles` hashes,
 output-name cache and planned uplift/export paths, probing Sioxc's actual native object/test
 filenames instead of inventing Rust library formats. Its package/version/mode/
-feature/flag namespaces are not a native freshness or compiled-library ABI key.
-Exact compiler-build identity, reusable library metadata and shared scheduler
+feature/flag namespaces include compiler executable identity but are not a
+complete toolchain or compiled-library ABI key. External-tool/input tracking,
+reusable library metadata and shared scheduler
 execution remain required. Native acceptance verifies actual outputs and unit
 namespace separation; it does not link/import the independently emitted objects
 as reusable compiled libraries or decide build freshness.
@@ -126,11 +137,13 @@ Native shared-process acceptance uses the same compiler/std variables:
 `cargo test -p cargo --lib compiler::compilation::tests -- --ignored`.
 Shared runner preparation/dry-run acceptance uses those same variables:
 `cargo test -p cargo --lib compiler::build_runner::tests -- --ignored`.
+Shared native fingerprint acceptance uses them too:
+`cargo test -p cargo --lib compiler::fingerprint::tests -- --ignored`.
 
 Adapter validation: 23 executable CLI/Git/metadata/planning tests, four source-tracking
-regressions covering both tools, one actual Sioxc probe integration
-test and 168 library tests (including 143 upstream Cargo tests and the explicitly
-enabled native compiler-selection, shared-planning, process-setup, artifact and runner tests) pass, along with
+regressions covering both tools, two actual Sioxc toolchain integration
+tests and 169 library tests (including 143 upstream Cargo tests and the explicitly
+enabled native compiler-selection, shared-planning, process-setup, artifact, runner and fingerprint tests) pass, along with
 formatting and strict relevant-target Clippy. Metadata/unit graphs and features match Cargo, Git pins
 are retained, and the reference Cargo binary still builds and runs a native path
 dependency project. This is not Cargo-driven Siox build support. The full
