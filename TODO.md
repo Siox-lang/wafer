@@ -6,8 +6,10 @@
 - [x] Isolate Wafer home/project config and typed configuration environment keys.
 - [x] Resolve explicit path/Git dependencies into Wafer.lock using Cargo's resolver/cache/encoder;
   honor offline/locked/frozen and reject registry access before connections.
+- [x] Produce full metadata through Cargo's existing graph/feature resolver using
+  actual Sioxc host facts; conservatively reuse path/Git lock resolutions.
 - Adapt external commands and remaining compiler/registry environment contracts.
-- Adapt source-file enumeration/fingerprints and conservative lock reuse for future builds.
+- Adapt source-file enumeration/fingerprints for future builds.
 - Wire Sioxc version/native-target/artifact-name queries into Cargo planning;
   extend capabilities as the compiler provides compiled-library/dep-info contracts.
 - Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
@@ -21,8 +23,9 @@
 This is a new integration effort, not the earlier standalone Wafer's60% estimate.
 Copying upstream functionality does not prove it works with Siox.
 
-Verified adapter: 17 executable CLI/Git tests, one actual Sioxc probe integration,
+Verified adapter: 21 executable CLI/Git/metadata tests, one actual Sioxc probe integration,
 147 library tests (143 upstream, native selection explicitly enabled), formatting
-and strict relevant-target Clippy. Cargo-driven compilation, compiled dependency
-libraries and full metadata remain unsupported, not silently delegated to Rust. Compiler query
+and strict relevant-target Clippy, including a real Cargo reference native build.
+Cargo-driven Siox compilation and compiled dependency libraries remain
+unsupported, not silently delegated to Rust. Compiler query
 changes remain local until its separate full corpus gate is green.

@@ -1,5 +1,8 @@
 use crate::core::compiler::artifact::match_artifacts_kind_with_targets;
-use crate::core::compiler::{CompileKind, CompileKindFallback, RustcTargetData};
+// Modified for Wafer: retain the same graph/feature pipeline with Sioxc platforms.
+use crate::core::compiler::{
+    CompileKind, CompileKindFallback, PlatformData, RustcTargetData, SioxcTargetData,
+};
 use crate::core::dependency::DepKind;
 use crate::core::package::SerializedPackage;
 use crate::core::resolver::{HasDevUnits, Resolve, features::CliFeatures};
@@ -149,7 +152,11 @@ fn build_resolve_graph(
         &metadata_opts.filter_platforms,
         CompileKindFallback::JustHost,
     )?;
-    let mut target_data = RustcTargetData::new(ws, &requested_kinds)?;
+    let mut target_data: Box<dyn PlatformData + '_> = if ws.gctx().is_wafer() {
+        Box::new(SioxcTargetData::new(ws, &requested_kinds)?)
+    } else {
+        Box::new(RustcTargetData::new(ws, &requested_kinds)?)
+    };
     // Resolve entire workspace.
     let specs = Packages::All(Vec::new()).to_package_id_specs(ws)?;
     let force_all = if metadata_opts.filter_platforms.is_empty() {
@@ -163,7 +170,7 @@ fn build_resolve_graph(
     let dry_run = false;
     let ws_resolve = ops::resolve_ws_with_opts(
         ws,
-        &mut target_data,
+        target_data.as_mut(),
         &requested_kinds,
         &metadata_opts.cli_features,
         &specs,
@@ -188,7 +195,7 @@ fn build_resolve_graph(
             member_pkg.package_id(),
             &ws_resolve.targeted_resolve,
             &package_map,
-            &target_data,
+            target_data.as_ref(),
             &requested_kinds,
         )?;
     }
@@ -211,7 +218,7 @@ fn build_resolve_graph_r(
     pkg_id: PackageId,
     resolve: &Resolve,
     package_map: &BTreeMap<PackageId, Package>,
-    target_data: &RustcTargetData<'_>,
+    target_data: &dyn PlatformData,
     requested_kinds: &[CompileKind],
 ) -> CargoResult<()> {
     if node_map.contains_key(&pkg_id) {

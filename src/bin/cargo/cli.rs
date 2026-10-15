@@ -90,11 +90,8 @@ pub fn main(gctx: &mut GlobalContext) -> CliResult {
                 return Ok(());
             }
         };
-        if gctx.is_wafer()
-            && !(matches!(cmd, "locate-project" | "generate-lockfile")
-                || (cmd == "metadata" && subcommand_args.flag("no-deps")))
-        {
-            return Err(anyhow::format_err!("Wafer's `{cmd}` adapter is not implemented yet; supported commands are locate-project, metadata --no-deps and generate-lockfile").into());
+        if gctx.is_wafer() && !matches!(cmd, "locate-project" | "generate-lockfile" | "metadata") {
+            return Err(anyhow::format_err!("Wafer's `{cmd}` adapter is not implemented yet; supported commands are locate-project, metadata and generate-lockfile").into());
         }
         let exec = Exec::infer(cmd)?;
         configure_gctx(
@@ -162,7 +159,7 @@ fn print_list(gctx: &GlobalContext, is_verbose: bool) {
     if gctx.is_wafer() {
         drop_println!(
             gctx,
-            "Installed Commands:\n    locate-project\n    metadata (requires --no-deps)\n    generate-lockfile"
+            "Installed Commands:\n    locate-project\n    metadata\n    generate-lockfile"
         );
         return;
     }
@@ -732,7 +729,7 @@ See '<cyan,bold>cargo help</> <cyan><<command>></>' for more information on a sp
         }))
         .subcommands(commands::builtin());
     if gctx.is_wafer() {
-        command.help_template("Wafer — Cargo-based Siox project tool (bootstrap)\n\nUsage: {usage}\n\nOptions:\n{options}\n\nSupported Commands:\n    locate-project\n    metadata --no-deps\n    generate-lockfile\n\nCompilation and registry adapters are not implemented yet.\n")
+        command.help_template("Wafer — Cargo-based Siox project tool (bootstrap)\n\nUsage: {usage}\n\nOptions:\n{options}\n\nSupported Commands:\n    locate-project\n    metadata [--no-deps]\n    generate-lockfile\n\nmetadata --no-deps needs no compiler; full metadata queries Sioxc host platforms.\nCompilation and registry adapters are not implemented yet.\n")
     } else {
         command
     }

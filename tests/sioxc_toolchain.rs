@@ -17,6 +17,7 @@ fn query_actual_sioxc_without_compiling_or_creating_artifacts() {
     let compiler = Sioxc::new(compiler.into(), &context).unwrap();
     assert!(compiler.verbose_version.starts_with("sioxc "));
     assert!(!compiler.host.is_empty() && !compiler.native_target.is_empty());
+    assert!(!compiler.host_cfg.is_empty());
     let input = root.path().join("missing.siox");
     assert_eq!(
         compiler.output_filename(&input, false, &context).unwrap(),

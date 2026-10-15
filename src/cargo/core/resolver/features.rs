@@ -38,7 +38,8 @@
 //! [new feature resolver]: https://doc.rust-lang.org/nightly/cargo/reference/resolver.html#feature-resolver-version-2
 //! [`resolve_ws_with_opts`]: crate::ops::resolve_ws_with_opts
 
-use crate::core::compiler::{CompileKind, CompileTarget, RustcTargetData};
+// Modified for Wafer: share feature resolution with non-Rust compiler platforms.
+use crate::core::compiler::{CompileKind, CompileTarget, PlatformData};
 use crate::core::dependency::{ArtifactTarget, DepKind, Dependency};
 use crate::core::resolver::types::FeaturesSet;
 use crate::core::resolver::{Resolve, ResolveBehavior};
@@ -407,7 +408,7 @@ pub type DiffMap = BTreeMap<PackageFeaturesKey, BTreeSet<InternedString>>;
 /// [module-level documentation]: crate::core::resolver::features
 pub struct FeatureResolver<'a, 'gctx> {
     ws: &'a Workspace<'gctx>,
-    target_data: &'a mut RustcTargetData<'gctx>,
+    target_data: &'a mut dyn PlatformData,
     /// The platforms to build for, requested by the user.
     requested_targets: &'a [CompileKind],
     resolve: &'a Resolve,
@@ -447,7 +448,7 @@ impl<'a, 'gctx> FeatureResolver<'a, 'gctx> {
     #[tracing::instrument(skip_all)]
     pub fn resolve(
         ws: &Workspace<'gctx>,
-        target_data: &'a mut RustcTargetData<'gctx>,
+        target_data: &'a mut dyn PlatformData,
         resolve: &Resolve,
         package_set: &'a PackageSet<'gctx>,
         cli_features: &CliFeatures,
@@ -780,7 +781,7 @@ impl<'a, 'gctx> FeatureResolver<'a, 'gctx> {
         fn platform_activated(
             dep: &Dependency,
             fk: FeaturesFor,
-            target_data: &RustcTargetData<'_>,
+            target_data: &dyn PlatformData,
             requested_targets: &[CompileKind],
         ) -> bool {
             // We always count platforms as activated if the target stems from an artifact
@@ -816,7 +817,7 @@ impl<'a, 'gctx> FeatureResolver<'a, 'gctx> {
                 return Ok(vec![lib_fk]);
             };
             let mut result = Vec::new();
-            let host_triple = this.target_data.rustc.host;
+            let host_triple = this.target_data.host_triple();
             // Not all targets may be queried before resolution since artifact
             // dependencies and per-pkg-targets are not immediately known.
             let mut activate_target = |target| {

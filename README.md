@@ -7,21 +7,24 @@ The Rust build package/library remain named cargo to keep upstream integration
 and its locked dependency graph intact. The new executable is named wafer.
 
 Siox projects use Wafer.toml and library names directly as namespaces. Bootstrap
-commands are `wafer locate-project`, `wafer metadata --no-deps --format-version 1`
+commands are `wafer locate-project`, `wafer metadata --format-version 1`
 and `wafer generate-lockfile`.
 Source targets follow Cargo's layout with `.siox` instead of `.rs`: `src/lib.siox`,
 `src/main.siox`, and files or `<name>/main.siox` below `src/bin/`, `examples/`,
 `tests/` and `benches/`. Explicit target paths and `auto* = false` overrides
 are supported. `[lib] name = "vendor"` sets the single library namespace.
 Rust legacy paths and automatic `build.rs` discovery do not apply to Wafer;
-explicit build scripts are rejected until their adapter exists. Compilation,
-compiler-aware dependency metadata and remaining mutation/registry commands still need adaptation. They are not implied
+explicit build scripts are rejected until their adapter exists. Compilation
+and remaining mutation/registry commands still need adaptation. They are not implied
 by the inherited Cargo help/API or resolver code. See TODO.md and chat.md.
 
 Bootstrap metadata uses Cargo's package/target/workspace shape but omits
 Rust-only edition, rust-version and crate-type fields. It does not claim
-byte-for-byte Rust metadata compatibility. The current read-only commands do
-not fetch dependencies or invoke a compiler.
+byte-for-byte Rust metadata compatibility. `metadata --no-deps` does not fetch
+dependencies or invoke a compiler. Full metadata uses Cargo's existing resolver,
+feature selection and graph writer with actual Sioxc execution-host platform
+facts; it can fetch Git dependencies and create/update Wafer.lock. Native
+`--filter-platform` is supported; unimplemented cross platforms are rejected.
 
 Wafer discovers `.wafer/config.toml` in the current directory and its ancestors,
 then merges its home configuration with Cargo's existing precedence rules.
@@ -39,17 +42,20 @@ contracts are still unadapted behind the unsupported-operation guard.
 Cargo's resolver/Git cache and writes `Wafer.lock`, using Cargo's lock encoding.
 It does not read or modify a neighbouring `Cargo.lock` and needs no compiler.
 `--offline`, `--locked` and `--frozen` retain Cargo's meanings. Re-running the
-generator without `--locked` intentionally re-resolves dependencies; conservative
-reuse by future build commands is not implemented yet. Git packages use
+generator without `--locked` intentionally re-resolves dependencies. Full
+metadata conservatively reuses existing pins, including with `--offline --locked`;
+build commands remain disabled. Git packages use
 `Wafer.toml`, including nested packages and inherited workspace metadata.
 Registries and unadapted source replacements are rejected before loading them;
 disabled optional transitive dependencies retain Cargo's normal feature selection
-and are not fetched. Builds, source-file fingerprinting, packaging, update/fetch
-commands and full dependency metadata remain unadapted.
+and are not fetched. Builds, source-file fingerprinting, packaging and update/fetch
+commands remain unadapted.
 
 The compiler adapter API selects `SIOXC`, then `build.sioxc` (including
 `WAFER_BUILD_SIOXC`), then `sioxc` on PATH. It queries Sioxc's own verbose
-version, native target and default artifact filenames. This requires the new
+version, execution-host cfg facts, native target and default artifact filenames.
+Dependency filtering uses the execution host and its matching cfg facts, not
+LLVM's potentially different native design triple. This requires the new
 compiler-owned `-vV`/`--print` interface in the local `feat/toolchain-queries`
 compiler branch; released/current older compilers are rejected rather than
 treated as Rust. These probes are not yet wired into Cargo's unit planning, so
@@ -59,12 +65,17 @@ Actual compiler-query acceptance is opt-in, not a fake compiler script or an
 implicit passing skip: set `WAFER_TEST_SIOXC` to that compiler binary and run
 `cargo test -p cargo --test sioxc_toolchain -- --ignored` plus
 `cargo test -p cargo --lib actual_sioxc_selection -- --ignored`.
+Full metadata comparisons and the Cargo reference native build additionally
+need `WAFER_TEST_RUSTC` pointing to the actual Rust1.90 compiler:
+`cargo test -p cargo --test wafer_metadata -- --ignored`.
 
-Adapter validation: 17 executable CLI/Git tests, one actual Sioxc probe integration
+Adapter validation: 21 executable CLI/Git/metadata tests, one actual Sioxc probe integration
 test and 147 library tests (including 143 upstream Cargo tests and the explicitly
 enabled native compiler-selection test) pass, along with formatting and strict
-relevant-target Clippy. This proves the probe boundary, not Cargo-driven Siox
-builds. The full upstream Cargo integration suite is not yet validated. The
+relevant-target Clippy. Metadata graphs/features match Cargo, Git pins are
+retained, and the reference Cargo binary still builds and runs a native path
+dependency project. This is not Cargo-driven Siox build support. The full
+upstream Cargo integration suite is not yet validated. The
 local compiler query branch passed its Rust/native/query tests but its full
 default and bitpack corpora each have five failures; it remains uncommitted
 under the compiler house gate.

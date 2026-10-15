@@ -64,7 +64,7 @@ use crate::core::PackageIdSpecQuery;
 use crate::core::PackageSet;
 use crate::core::SourceId;
 use crate::core::Workspace;
-use crate::core::compiler::{CompileKind, RustcTargetData};
+use crate::core::compiler::{CompileKind, PlatformData};
 use crate::core::registry::{LockedPatchDependency, PackageRegistry};
 use crate::core::resolver::features::{
     CliFeatures, FeatureOpts, FeatureResolver, ForceAllTargets, RequestedFeatures, ResolvedFeatures,
@@ -149,7 +149,7 @@ pub fn resolve_ws<'a>(ws: &Workspace<'a>, dry_run: bool) -> CargoResult<(Package
 /// members. In this case, `opts.all_features` must be `true`.
 pub fn resolve_ws_with_opts<'gctx>(
     ws: &Workspace<'gctx>,
-    target_data: &mut RustcTargetData<'gctx>,
+    target_data: &mut dyn PlatformData,
     requested_targets: &[CompileKind],
     cli_features: &CliFeatures,
     specs: &[PackageIdSpec],

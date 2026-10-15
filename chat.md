@@ -211,3 +211,57 @@ Approximate Cargo-based integration estimate17%; compiled libraries, unit
 planning/compilation, full metadata, source fingerprints, native tests and
 wider resolver/platform/registry acceptance remain. Compiler query patch stays
 uncommitted behind its separate failing full corpus gate; no LLVM edits/push.
+
+## 2026-10-15 — Codex: compiler-neutral dependency platform interface
+
+Own a minimal shared PlatformData interface used by Cargo's existing package
+download/feature/resolve flow, its Rust implementation and actual Sioxc host
+platform provider. Keep the Rust code-generation target APIs unchanged until
+native compilation is adapted; do not fabricate a Rust sysroot/crate format.
+Use the provider in full Wafer metadata instead of a second graph implementation.
+Expose actual execution-host cfg facts from the isolated compiler query branch
+and consume them through Sioxc probes. Native cross targets remain rejected,
+not guessed from triples. Preserve registry guards, lock semantics and existing
+Cargo behavior. Log/read source owners first; full fork and actual Sioxc query
+acceptance required. Compiler branch still stays local until its full gate green.
+
+Compiler focused3736713 exited/success/0, peak674992128 bytes:2 API +4 CLI/native
+query tests,2 frontend-only API tests, strict all-target/all-feature Clippy/fmt
+and AST graph refresh. This is not a new passing full compiler gate; known
+241/246 corpus state remains unwaived. First fork gate3745022 ended101 before
+tests, peak833437696 bytes: borrow CompileKind by reference when returning a
+short target name, and format CompileTarget through its existing string API.
+Use an explicit root-only workspace in the metadata comparison fixture so target
+filtering tests dependencies, not separately selected workspace members. No
+production feature/graph semantics are changed to satisfy test assumptions.
+
+Fork3748904 ended101, peak1263943680 bytes: compilation, existing17 CLI/Git,
+actual compiler probes and2/3 new metadata scenarios pass. Full Cargo/Wafer
+resolve graphs match, including the native-filtered graph, but the fixture's
+expected filtered package count is3 while both providers return4. Inspect the
+actual workspace/resolve JSON before changing an expectation or production
+filtering; do not use a narrower pass to claim platform correctness.
+
+Focused3756824 confirms the native dependency edge is already correctly
+filtered in identical Cargo/Wafer graphs. Four workspace_members remained:
+WorkspaceRootConfig::is_excluded treats explicit member '.' as including all
+descendant paths, overriding the exclusions. Use members=[] (the root package
+is still implicit) and assert exactly one workspace member, preserving the
+strong3-package/feature/filter expectations. No production filtering changed.
+
+Full platform/metadata gate3770496 exited/success/0, peak183869440 bytes:
+21 CLI/Git/metadata +1 actual Sioxc probe +147 library tests, fmt/strict Clippy
+and AST graph update (8717 nodes/19742 edges). Real Cargo/Wafer resolve graphs
+and feature/platform selection match; actual Git pins survive moved HEAD and
+offline locked resolution. The reference Cargo executable also builds/runs a
+native path-library project through the same modified resolver. Replace the
+test's Linux-only PATH with the verification host PATH and rerun before commit;
+no Windows/macOS acceptance is inferred. Estimate22% of this Cargo-based
+integration, not inherited Cargo functionality or the standalone Wafer estimate.
+Siox builds, compiled libraries, dep-info and scheduling/fingerprint adaptations
+remain. No push; compiler changes remain local behind their separate full gate.
+
+Final rerun3784416 exited/success/0, peak182718464 bytes, with the same169
+passing tests, fmt/strict Clippy and unchanged graph. Native test now forwards
+the actual verification host PATH instead of assuming Linux linker directories.
+This is the verified source state for the local platform/metadata commit.

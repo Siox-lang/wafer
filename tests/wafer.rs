@@ -64,7 +64,6 @@ fn wafer_bootstrap_brands_and_rejects_unadapted_operations_before_side_effects()
         vec!["build"],
         vec!["check"],
         vec!["test"],
-        vec!["metadata"],
         vec!["fetch"],
         vec!["update"],
         vec!["tree"],

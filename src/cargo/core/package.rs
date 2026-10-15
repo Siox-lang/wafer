@@ -17,7 +17,8 @@ use semver::Version;
 use serde::Serialize;
 use tracing::debug;
 
-use crate::core::compiler::{CompileKind, RustcTargetData};
+// Modified for Wafer: package filtering shares compiler-neutral platform data.
+use crate::core::compiler::{CompileKind, PlatformData};
 use crate::core::dependency::DepKind;
 use crate::core::resolver::features::ForceAllTargets;
 use crate::core::resolver::{HasDevUnits, Resolve};
@@ -491,7 +492,7 @@ impl<'gctx> PackageSet<'gctx> {
         root_ids: &[PackageId],
         has_dev_units: HasDevUnits,
         requested_kinds: &[CompileKind],
-        target_data: &RustcTargetData<'gctx>,
+        target_data: &dyn PlatformData,
         force_all_targets: ForceAllTargets,
     ) -> CargoResult<()> {
         fn collect_used_deps(
@@ -500,7 +501,7 @@ impl<'gctx> PackageSet<'gctx> {
             pkg_id: PackageId,
             has_dev_units: HasDevUnits,
             requested_kind: CompileKind,
-            target_data: &RustcTargetData<'_>,
+            target_data: &dyn PlatformData,
             force_all_targets: ForceAllTargets,
         ) -> CargoResult<()> {
             if !used.insert((pkg_id, requested_kind)) {
@@ -582,7 +583,7 @@ impl<'gctx> PackageSet<'gctx> {
         root_ids: &[PackageId],
         has_dev_units: HasDevUnits,
         requested_kinds: &[CompileKind],
-        target_data: &RustcTargetData<'_>,
+        target_data: &dyn PlatformData,
         force_all_targets: ForceAllTargets,
     ) -> CargoResult<()> {
         let no_lib_pkgs: BTreeMap<PackageId, Vec<(&Package, &HashSet<Dependency>)>> = root_ids
@@ -634,7 +635,7 @@ impl<'gctx> PackageSet<'gctx> {
         resolve: &'a Resolve,
         has_dev_units: HasDevUnits,
         requested_kinds: &'a [CompileKind],
-        target_data: &'a RustcTargetData<'_>,
+        target_data: &'a dyn PlatformData,
         force_all_targets: ForceAllTargets,
     ) -> impl Iterator<Item = (PackageId, &'a HashSet<Dependency>)> + 'a {
         resolve

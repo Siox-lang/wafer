@@ -48,6 +48,8 @@ mod links;
 mod lto;
 mod output_depinfo;
 mod output_sbom;
+// Modified for Wafer: dependency resolution uses compiler-owned platform facts.
+mod platform_data;
 pub mod rustdoc;
 pub mod standard_lib;
 mod timings;
@@ -88,6 +90,7 @@ pub(crate) use self::layout::Layout;
 pub use self::lto::Lto;
 use self::output_depinfo::output_depinfo;
 use self::output_sbom::build_sbom;
+pub use self::platform_data::{PlatformData, SioxcTargetData};
 use self::unit_graph::UnitDep;
 use crate::core::compiler::future_incompat::FutureIncompatReport;
 pub use crate::core::compiler::unit::{Unit, UnitInterner};

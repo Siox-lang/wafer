@@ -12,6 +12,7 @@ pub struct Sioxc {
     pub version: semver::Version,
     pub host: String,
     pub native_target: String,
+    pub host_cfg: Vec<cargo_platform::Cfg>,
     pub verbose_version: String,
 }
 
@@ -28,11 +29,23 @@ impl Sioxc {
         if native_target.chars().any(char::is_whitespace) {
             bail!("Sioxc returned an invalid native target: {native_target:?}");
         }
+        let mut command = Self::command(&path, gctx)?;
+        command.arg("--print=cfg");
+        let cfg = output(&command).context("failed to query Sioxc execution-host cfg")?;
+        let host_cfg = cfg
+            .lines()
+            .map(str::parse)
+            .collect::<Result<Vec<cargo_platform::Cfg>, _>>()
+            .context("invalid Sioxc execution-host cfg")?;
+        if host_cfg.is_empty() {
+            bail!("Sioxc returned no execution-host cfg facts");
+        }
         Ok(Self {
             path,
             version,
             host,
             native_target,
+            host_cfg,
             verbose_version,
         })
     }
