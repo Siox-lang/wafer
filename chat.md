@@ -343,3 +343,48 @@ contracts remain unimplemented, not advertised as builds. Approximate scoped
 integration estimate27%. Compiler query branch remains uncommitted behind its
 separate full corpus gate, no LLVM changes or push. Next work is integrating
 this shared planner with the build context and compiler-specific execution.
+
+## 2026-10-15 — Codex: shared build-context entry point
+
+Own cargo_compile/mod.rs, compiler/build_context/mod.rs and planner acceptance.
+Use one create_bcx planning implementation for actual Rust and Sioxc data;
+preserve Rust-specific std-library/MSRV handling as an optional Rust capability.
+Parameterize the build context so the existing Rust-only runner cannot accept
+a Sioxc context by mistake. Replace test-only stage assembly with the actual
+production entry points. If exposed via CLI, support only explicit unit-graph
+planning until native Sioxc execution/artifacts are adapted. Keep all other
+unsupported operations guarded, retain Rust native acceptance and preserve
+compiler/LLVM ownership. No compiler commit or push authorization.
+
+Initial shared-context gate3842365 exited/success/0, peak1569406976 bytes:
+all175 tests, strict Clippy/fmt and AST update pass (8748 nodes/19841 edges).
+The native planner tests now call production create_bcx/create_sioxc_bcx rather
+than assembling resolver/generator stages themselves. Own the build command,
+CLI guard/help and unit-graph serialization as well to expose explicit Cargo-style
+unit-graph planning only; retain upstream instability gating and omit Rust-only
+target metadata in Wafer output. Normal compilation remains blocked.
+
+CLI/context gate3852565 exited/success/0, peak1360953344 bytes:177 selected
+tests, strict Clippy/fmt and AST update pass (8748 nodes/19842 edges). Actual
+Cargo/Wafer CLI unit graphs match after only source-suffix/Rust-target-metadata
+normalization; default/selected features, release/lib filters and locked reuse
+work without source compilation or debug/release artifacts. Unsupported Rust
+options, stable-channel and cross-target requests fail before lock/artifact writes.
+Add an explicit Rust-only MSRV regression before the final shared-planner gate.
+
+Final semantic gate siox-job-3000-1792078291320891462-3859584.service finished
+exited/success/0, peak1098592256 bytes: all178 selected tests pass (150 library,
+28 CLI/Git/metadata/source/native integration), including actual Sioxc/Rust
+entry-point/CLI planning, Rust MSRV enforcement and explicit bypass, Sioxc MSRV
+isolation, native Cargo build/run and fail-before-write option guards. Fmt/strict
+Clippy and AST refresh pass (8749 nodes/19847 edges). Only an upstream modification
+notice and documentation formatting follow this semantic gate; run final fmt
+and graph refresh before commit. Approximate scoped integration estimate30%.
+Normal Siox compilation, reusable library formats, configured flags, dep-info/
+fingerprints, native test batching and registry/platform acceptance remain.
+No full upstream suite, compiler house-gate pass or push is claimed.
+
+Final notice/docs check3864417 exited/success/0, peak154460160 bytes:
+fmt --check and AST refresh pass with unchanged graph counts. No executable
+logic changed after semantic gate3859584. This is the source state committed
+for shared build-context and explicit CLI unit-graph planning.

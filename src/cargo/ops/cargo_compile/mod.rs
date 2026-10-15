@@ -38,12 +38,16 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+// Modified for Wafer: one build-context planner, with compiler-specific capabilities.
+use anyhow::Context as _;
 
 use crate::core::compiler::UserIntent;
 use crate::core::compiler::unit_dependencies::build_unit_dependencies;
 use crate::core::compiler::unit_graph::{self, UnitDep, UnitGraph};
 use crate::core::compiler::{BuildConfig, BuildContext, BuildRunner, Compilation};
-use crate::core::compiler::{CompileKind, CompileTarget, RustcTargetData, Unit};
+use crate::core::compiler::{
+    CompileKind, CompileTarget, RustcTargetData, SioxcTargetData, Unit, UnitTargetData,
+};
 use crate::core::compiler::{CrateType, TargetInfo, apply_env_config, standard_lib};
 use crate::core::compiler::{DefaultExecutor, Executor, UnitInterner};
 use crate::core::profiles::Profiles;
@@ -213,6 +217,64 @@ pub fn create_bcx<'a, 'gctx>(
     options: &'a CompileOptions,
     interner: &'a UnitInterner,
 ) -> CargoResult<BuildContext<'a, 'gctx>> {
+    create_bcx_with_data::<RustcTargetData<'gctx>>(ws, options, interner)
+}
+
+/// Prepare Sioxc units through the same planner; the Rust-only runner cannot consume this context.
+pub fn create_sioxc_bcx<'a, 'gctx>(
+    ws: &'a Workspace<'gctx>,
+    options: &'a CompileOptions,
+    interner: &'a UnitInterner,
+) -> CargoResult<BuildContext<'a, 'gctx, SioxcTargetData>> {
+    if !ws.gctx().is_wafer() {
+        anyhow::bail!("Sioxc planning requires a Wafer workspace");
+    }
+    if !matches!(
+        options.build_config.intent,
+        UserIntent::Build | UserIntent::Check { test: false }
+    ) || ws.gctx().cli_unstable().build_std.is_some()
+        || options.target_rustc_args.is_some()
+        || options.target_rustdoc_args.is_some()
+        || options.target_rustc_crate_types.is_some()
+        || options.rustdoc_document_private_items
+        || options.honor_rust_version.is_some()
+    {
+        anyhow::bail!(
+            "Sioxc build-context planning does not support Rust compiler, documentation, standard-library or test options"
+        );
+    }
+    create_bcx_with_data::<SioxcTargetData>(ws, options, interner)
+}
+
+/// Rust standard-library planning is an optional capability, not a fabricated Sioxc sysroot.
+trait PlanningTargetData<'gctx>: UnitTargetData + Sized {
+    fn new(ws: &Workspace<'gctx>, kinds: &[CompileKind]) -> CargoResult<Self>;
+    fn rust_data(&mut self) -> Option<&mut RustcTargetData<'gctx>>;
+}
+
+impl<'gctx> PlanningTargetData<'gctx> for RustcTargetData<'gctx> {
+    fn new(ws: &Workspace<'gctx>, kinds: &[CompileKind]) -> CargoResult<Self> {
+        RustcTargetData::new(ws, kinds)
+    }
+    fn rust_data(&mut self) -> Option<&mut RustcTargetData<'gctx>> {
+        Some(self)
+    }
+}
+
+impl<'gctx> PlanningTargetData<'gctx> for SioxcTargetData {
+    fn new(ws: &Workspace<'gctx>, kinds: &[CompileKind]) -> CargoResult<Self> {
+        SioxcTargetData::new(ws, kinds)
+    }
+    fn rust_data(&mut self) -> Option<&mut RustcTargetData<'gctx>> {
+        None
+    }
+}
+
+fn create_bcx_with_data<'a, 'gctx, TargetData: PlanningTargetData<'gctx>>(
+    ws: &'a Workspace<'gctx>,
+    options: &'a CompileOptions,
+    interner: &'a UnitInterner,
+) -> CargoResult<BuildContext<'a, 'gctx, TargetData>> {
     let CompileOptions {
         ref build_config,
         ref spec,
@@ -229,7 +291,7 @@ pub fn create_bcx<'a, 'gctx>(
     // Perform some pre-flight validation.
     match build_config.intent {
         UserIntent::Test | UserIntent::Build | UserIntent::Check { .. } | UserIntent::Bench => {
-            if ws.gctx().get_env("RUST_FLAGS").is_ok() {
+            if !gctx.is_wafer() && ws.gctx().get_env("RUST_FLAGS").is_ok() {
                 gctx.shell().warn(
                     "Cargo does not read `RUST_FLAGS` environment variable. Did you mean `RUSTFLAGS`?",
                 )?;
@@ -245,7 +307,7 @@ pub fn create_bcx<'a, 'gctx>(
     }
     gctx.validate_term_config()?;
 
-    let mut target_data = RustcTargetData::new(ws, &build_config.requested_kinds)?;
+    let mut target_data = TargetData::new(ws, &build_config.requested_kinds)?;
 
     let specs = spec.to_package_id_specs(ws)?;
     let has_dev_units = {
@@ -288,9 +350,12 @@ pub fn create_bcx<'a, 'gctx>(
     } = resolve;
 
     let std_resolve_features = if let Some(crates) = &gctx.cli_unstable().build_std {
+        let rust_data = target_data
+            .rust_data()
+            .context("building Rust std requires rustc")?;
         let (std_package_set, std_resolve, std_features) = standard_lib::resolve_std(
             ws,
-            &mut target_data,
+            rust_data,
             &build_config,
             crates,
             &build_config.requested_kinds,
@@ -353,7 +418,7 @@ pub fn create_bcx<'a, 'gctx>(
     // If `--target` has not been specified, then the unit graph is built
     // assuming `--target $HOST` was specified. See
     // `rebuild_unit_graph_shared` for more on why this is done.
-    let explicit_host_kind = CompileKind::Target(CompileTarget::new(&target_data.rustc.host)?);
+    let explicit_host_kind = CompileKind::Target(CompileTarget::new(&target_data.host_triple())?);
     let explicit_host_kinds: Vec<_> = build_config
         .requested_kinds
         .iter()
@@ -416,6 +481,9 @@ pub fn create_bcx<'a, 'gctx>(
 
         let std_roots = if let Some(crates) = gctx.cli_unstable().build_std.as_ref() {
             let (std_resolve, std_features) = std_resolve_features.as_ref().unwrap();
+            let rust_data = target_data
+                .rust_data()
+                .context("building Rust std requires rustc")?;
             standard_lib::generate_std_roots(
                 &crates,
                 &targeted_root_units,
@@ -425,7 +493,7 @@ pub fn create_bcx<'a, 'gctx>(
                 &pkg_set,
                 interner,
                 &profiles,
-                &target_data,
+                rust_data,
             )?
         } else {
             Default::default()
@@ -505,9 +573,11 @@ pub fn create_bcx<'a, 'gctx>(
             .extend(args);
     }
 
-    if honor_rust_version.unwrap_or(true) {
-        let rustc_version = target_data.rustc.version.clone().into();
-
+    if let Some(rustc_version) = target_data
+        .rust_data()
+        .filter(|_| honor_rust_version.unwrap_or(true))
+        .map(|data| data.rustc.version.clone().into())
+    {
         let mut incompatible = Vec::new();
         let mut local_incompatible = false;
         for unit in unit_graph.keys() {

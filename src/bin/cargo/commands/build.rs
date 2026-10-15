@@ -1,6 +1,8 @@
 use crate::command_prelude::*;
 
 use cargo::ops;
+// Modified for Wafer: expose shared unit planning without entering Rust compilation.
+use cargo::core::compiler::{UnitInterner, unit_graph};
 
 pub fn cli() -> Command {
     subcommand("build")
@@ -78,6 +80,19 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
             .fail_if_stable_opt("--artifact-dir", 6790)?;
     }
 
-    ops::compile(&ws, &compile_opts)?;
+    if gctx.is_wafer() {
+        if !compile_opts.build_config.unit_graph {
+            return Err(anyhow::format_err!(
+                "Wafer compilation is not implemented; only --unit-graph planning is supported"
+            )
+            .into());
+        }
+        ws.emit_warnings()?;
+        let interner = UnitInterner::new();
+        let context = ops::create_sioxc_bcx(&ws, &compile_opts, &interner)?;
+        unit_graph::emit_serialized_unit_graph(&context.roots, &context.unit_graph, gctx)?;
+    } else {
+        ops::compile(&ws, &compile_opts)?;
+    }
     Ok(())
 }

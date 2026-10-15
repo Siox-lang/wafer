@@ -2,8 +2,10 @@ use crate::sources::CRATES_IO_DOMAIN;
 
 pub use self::cargo_clean::{CleanContext, CleanOptions, clean};
 pub use self::cargo_compile::{CompileFilter, FilterRule, LibRule, Packages};
+// Modified for Wafer: export the Sioxc entry into the shared build-context planner.
 pub use self::cargo_compile::{
-    CompileOptions, compile, compile_with_exec, compile_ws, create_bcx, print, resolve_all_features,
+    CompileOptions, compile, compile_with_exec, compile_ws, create_bcx, create_sioxc_bcx, print,
+    resolve_all_features,
 };
 pub use self::cargo_doc::{DocOptions, OutputFormat, doc};
 pub use self::cargo_fetch::{FetchOptions, fetch};

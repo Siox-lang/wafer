@@ -1,11 +1,8 @@
 use super::*;
 use crate::core::Shell;
-use crate::core::compiler::unit_dependencies::build_unit_dependencies;
 use crate::core::compiler::unit_graph::UnitGraph;
-use crate::core::compiler::{RustcTargetData, SioxcTargetData};
-use crate::core::resolver::features::{CliFeatures, ForceAllTargets};
-use crate::ops::cargo_compile::{CompileOptions, rebuild_unit_graph_shared};
-use crate::ops::resolve::WorkspaceResolve;
+use crate::core::resolver::features::CliFeatures;
+use crate::ops::cargo_compile::{CompileOptions, create_bcx, create_sioxc_bcx};
 use crate::util::GlobalContext;
 use std::{collections::BTreeMap, path::Path};
 
@@ -92,81 +89,15 @@ fn context(root: &Path, wafer: bool) -> GlobalContext {
     context
 }
 
-// Assemble the same upstream planner stages without constructing a Rust build runner.
-fn plan(
-    ws: &Workspace<'_>,
-    options: &CompileOptions,
-    target_data: &mut dyn UnitTargetData,
-) -> CargoResult<(Vec<Unit>, UnitGraph)> {
-    let specs = options.spec.to_package_id_specs(ws)?;
-    let requested = &options.build_config.requested_kinds;
-    let WorkspaceResolve {
-        pkg_set,
-        workspace_resolve,
-        targeted_resolve: resolve,
-        specs_and_features,
-    } = crate::ops::resolve_ws_with_opts(
-        ws,
-        target_data,
-        requested,
-        &options.cli_features,
-        &specs,
-        HasDevUnits::No,
-        ForceAllTargets::No,
-        false,
-    )?;
-    let packages = pkg_set.get_many(resolve.specs_to_ids(&specs)?)?;
-    let profiles = Profiles::new(ws, options.build_config.requested_profile)?;
-    let explicit_host_kind = CompileKind::Target(crate::core::compiler::CompileTarget::new(
-        &target_data.host_triple(),
-    )?);
+fn plan(ws: &Workspace<'_>, options: &CompileOptions) -> CargoResult<(Vec<Unit>, UnitGraph)> {
     let interner = UnitInterner::new();
-    let mut roots = Vec::new();
-    let mut graph = UnitGraph::new();
-    for group in &specs_and_features {
-        let generator = UnitGenerator {
-            ws,
-            packages: &packages,
-            spec: &options.spec,
-            target_data,
-            filter: &options.filter,
-            requested_kinds: requested,
-            explicit_host_kind,
-            intent: options.build_config.intent,
-            resolve: &resolve,
-            workspace_resolve: &workspace_resolve,
-            resolved_features: &group.resolved_features,
-            package_set: &pkg_set,
-            profiles: &profiles,
-            interner: &interner,
-            has_dev_units: HasDevUnits::No,
-        };
-        let units = generator.generate_root_units()?;
-        graph.extend(build_unit_dependencies(
-            ws,
-            &pkg_set,
-            &resolve,
-            &group.resolved_features,
-            None,
-            &units,
-            &[],
-            &HashMap::new(),
-            options.build_config.intent,
-            target_data,
-            &profiles,
-            &interner,
-        )?);
-        roots.extend(units);
+    if ws.gctx().is_wafer() {
+        let context = create_sioxc_bcx(ws, options, &interner)?;
+        Ok((context.roots, context.unit_graph))
+    } else {
+        let context = create_bcx(ws, options, &interner)?;
+        Ok((context.roots, context.unit_graph))
     }
-    let (roots, _, graph) = rebuild_unit_graph_shared(
-        &interner,
-        graph,
-        &roots,
-        &[],
-        Some(explicit_host_kind),
-        false,
-    );
-    Ok((roots, graph))
 }
 
 fn identity(unit: &Unit) -> String {
@@ -216,10 +147,7 @@ fn actual_compilers_share_unit_planning_versions_features_profiles_and_filters()
         (UserIntent::Check { test: false }, "dev", true, true),
     ] {
         let mut snapshots = Vec::new();
-        for (ws, context, wafer) in [
-            (&wafer_ws, &wafer_context, true),
-            (&cargo_ws, &cargo_context, false),
-        ] {
+        for (ws, context) in [(&wafer_ws, &wafer_context), (&cargo_ws, &cargo_context)] {
             let mut options = CompileOptions::new(context, intent).unwrap();
             options.filter = CompileFilter::Default {
                 required_features_filterable: true,
@@ -229,12 +157,7 @@ fn actual_compilers_share_unit_planning_versions_features_profiles_and_filters()
             if bin_only {
                 options.filter = CompileFilter::single_bin("tool".into());
             }
-            let mut target_data: Box<dyn UnitTargetData + '_> = if wafer {
-                Box::new(SioxcTargetData::new(ws, &options.build_config.requested_kinds).unwrap())
-            } else {
-                Box::new(RustcTargetData::new(ws, &options.build_config.requested_kinds).unwrap())
-            };
-            let (roots, graph) = plan(ws, &options, target_data.as_mut()).unwrap();
+            let (roots, graph) = plan(ws, &options).unwrap();
             assert_eq!(roots.len(), if all_features && !bin_only { 2 } else { 1 });
             assert_eq!(graph.len(), if all_features { 6 } else { 4 });
             assert!(graph.keys().all(|unit| unit.kind.is_host()));
@@ -272,8 +195,7 @@ fn actual_compilers_share_unit_planning_versions_features_profiles_and_filters()
 
     let mut options = CompileOptions::new(&wafer_context, UserIntent::Build).unwrap();
     options.filter = CompileFilter::single_bin("tool".into());
-    let mut data = SioxcTargetData::new(&wafer_ws, &options.build_config.requested_kinds).unwrap();
-    let error = plan(&wafer_ws, &options, &mut data).unwrap_err();
+    let error = plan(&wafer_ws, &options).unwrap_err();
     assert!(
         error.to_string().contains("requires the features"),
         "{error:#}"
@@ -305,9 +227,10 @@ fn rust_unit_planning_preserves_configured_flags_and_link_overrides() {
     let ws = Workspace::new(&root.join("Cargo.toml"), &context).unwrap();
     let mut options = CompileOptions::new(&context, UserIntent::Build).unwrap();
     options.filter = CompileFilter::lib_only();
-    let mut data = RustcTargetData::new(&ws, &options.build_config.requested_kinds).unwrap();
-    let (_, graph) = plan(&ws, &options, &mut data).unwrap();
-    for unit in graph.keys() {
+    let interner = UnitInterner::new();
+    let bcx = create_bcx(&ws, &options, &interner).unwrap();
+    let data = &bcx.target_data;
+    for unit in bcx.unit_graph.keys() {
         assert_eq!(unit.rustflags.as_ref(), ["--cfg=unit_planner"]);
         assert_eq!(unit.rustdocflags.as_ref(), ["--cfg=doc_planner"]);
         assert_eq!(
@@ -327,5 +250,40 @@ fn rust_unit_planning_preserves_configured_flags_and_link_overrides() {
             &options.links_overrides,
             &data.target_config(unit.kind).links_overrides
         ));
+    }
+}
+
+#[test]
+#[ignore = "requires actual WAFER_TEST_SIOXC and WAFER_TEST_RUSTC"]
+fn shared_context_enforces_rust_msrv_only_for_the_rust_compiler() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fixture(root);
+    for manifest in ["Cargo.toml", "Wafer.toml"] {
+        let contents = std::fs::read_to_string(root.join(manifest)).unwrap();
+        write(
+            root,
+            manifest,
+            &contents.replacen(
+                "version='1.0.0'",
+                "version='1.0.0'\nrust-version='999.0'",
+                1,
+            ),
+        );
+    }
+    for wafer in [true, false] {
+        let context = context(root, wafer);
+        let ws = Workspace::new(&root.join(context.manifest_filename()), &context).unwrap();
+        let mut options = CompileOptions::new(&context, UserIntent::Build).unwrap();
+        options.filter = CompileFilter::lib_only();
+        let result = plan(&ws, &options);
+        if wafer {
+            assert!(result.is_ok(), "{}", result.unwrap_err());
+        } else {
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("requires rustc 999"), "{error}");
+            options.honor_rust_version = Some(false);
+            assert!(plan(&ws, &options).is_ok());
+        }
     }
 }

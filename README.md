@@ -8,7 +8,9 @@ and its locked dependency graph intact. The new executable is named wafer.
 
 Siox projects use Wafer.toml and library names directly as namespaces. Bootstrap
 commands are `wafer locate-project`, `wafer metadata --format-version 1`
-and `wafer generate-lockfile`.
+and `wafer generate-lockfile`. Explicit planning is available with
+`wafer build --unit-graph -Zunstable-options`, retaining Cargo's unstable-channel
+gate; it does not compile source or produce build artifacts.
 Source targets follow Cargo's layout with `.siox` instead of `.rs`: `src/lib.siox`,
 `src/main.siox`, and files or `<name>/main.siox` below `src/bin/`, `examples/`,
 `tests/` and `benches/`. Explicit target paths and `auto* = false` overrides
@@ -45,7 +47,7 @@ It does not read or modify a neighbouring `Cargo.lock` and needs no compiler.
 `--offline`, `--locked` and `--frozen` retain Cargo's meanings. Re-running the
 generator without `--locked` intentionally re-resolves dependencies. Full
 metadata conservatively reuses existing pins, including with `--offline --locked`;
-build commands remain disabled. Git packages use
+ordinary build execution remains disabled. Git packages use
 `Wafer.toml`, including nested packages and inherited workspace metadata.
 Registries and unadapted source replacements are rejected before loading them;
 disabled optional transitive dependencies retain Cargo's normal feature selection
@@ -63,11 +65,14 @@ LLVM's potentially different native design triple. This requires the new
 compiler-owned `-vV`/`--print` interface in the local `feat/toolchain-queries`
 compiler branch; released/current older compilers are rejected rather than
 treated as Rust. The shared root/dependency unit planners now accept Sioxc
-platform data without Rust sysroots or crate-format probes. Native API acceptance
+platform data without Rust sysroots or crate-format probes. One build-context
+planning implementation serves both compilers; `create_sioxc_bcx` exposes the
+Sioxc context and the explicit unit-graph CLI prints that plan. Native acceptance
 covers versioned library units, features, profiles and target filters through
-Cargo's existing planner and host-unit deduplication. This is not CLI build
-support: the build context, execution, configured Sioxc flags and artifact/dep-info
-adapters still need integration, so build/check/test remain disabled.
+Cargo's existing planner and host-unit deduplication. Rust std/MSRV handling
+remains Rust-specific, and Sioxc contexts cannot enter the Rust-only runner.
+Execution, configured Sioxc flags and artifact/dep-info adapters still need
+integration, so normal build/check/test execution remains disabled.
 Compiled-library formats are not emulated.
 
 Embedded users can construct a sandboxed Wafer context with
@@ -84,13 +89,12 @@ need `WAFER_TEST_RUSTC` pointing to the actual Rust1.90 compiler:
 Both compiler paths are also required for the shared planner acceptance:
 `cargo test -p cargo --lib unit_generator::tests -- --ignored`.
 
-Adapter validation: 21 executable CLI/Git/metadata tests, four source-tracking
+Adapter validation: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions covering both tools, one actual Sioxc probe integration
-test and 149 library tests (including 143 upstream Cargo tests and the explicitly
+test and 150 library tests (including 143 upstream Cargo tests and the explicitly
 enabled native compiler-selection and shared-planning tests) pass, along with
-formatting and strict
-relevant-target Clippy. Metadata graphs/features match Cargo, Git pins are
-retained, and the reference Cargo binary still builds and runs a native path
+formatting and strict relevant-target Clippy. Metadata/unit graphs and features match Cargo, Git pins
+are retained, and the reference Cargo binary still builds and runs a native path
 dependency project. This is not Cargo-driven Siox build support. The full
 upstream Cargo integration suite is not yet validated. The
 local compiler query branch passed its Rust/native/query tests but its full

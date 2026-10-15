@@ -123,9 +123,24 @@ pub fn emit_serialized_unit_graph(
         })
         .collect();
 
-    gctx.shell().print_json(&SerializedUnitGraph {
+    let graph = SerializedUnitGraph {
         version: VERSION,
         units: ser_units,
         roots,
-    })
+    };
+    // Modified for Wafer: a planned Siox target does not describe Rust crate outputs.
+    if gctx.is_wafer() {
+        let mut graph = serde_json::to_value(&graph)?;
+        if let Some(units) = graph["units"].as_array_mut() {
+            for unit in units {
+                if let Some(target) = unit["target"].as_object_mut() {
+                    target.remove("edition");
+                    target.remove("crate_types");
+                }
+            }
+        }
+        gctx.shell().print_json(&graph)
+    } else {
+        gctx.shell().print_json(&graph)
+    }
 }

@@ -336,3 +336,136 @@ fn cargo_reference_still_builds_and_runs_through_the_shared_platform_resolver() 
     );
     assert!(!root.join("Wafer.lock").exists());
 }
+
+#[test]
+#[ignore = "requires actual WAFER_TEST_SIOXC and WAFER_TEST_RUSTC"]
+fn unit_graph_cli_uses_the_shared_context_without_compiling_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    for (manifest, extension) in [("Cargo.toml", "rs"), ("Wafer.toml", "siox")] {
+        write(
+            root,
+            manifest,
+            "[package]\nname='controller'\nversion='1.0.0'\nresolver='2'\n\
+             [features]\ndefault=['extra']\nextra=['dep/selected']\n\
+             [dependencies]\ndep={path='dep'}\n[profile.release]\nopt-level=2\n",
+        );
+        write(
+            root,
+            &format!("dep/{manifest}"),
+            "[package]\nname='dep'\nversion='1.0.0'\n[lib]\nname='vendor'\n[features]\nselected=[]\n",
+        );
+        for path in ["src/lib", "src/main", "dep/src/lib"] {
+            write(
+                root,
+                &format!("{path}.{extension}"),
+                "planning must not compile this",
+            );
+        }
+    }
+    for flags in [vec![], vec!["--release", "--no-default-features", "--lib"]] {
+        let mut args = vec!["build", "--unit-graph", "-Zunstable-options"];
+        args.extend(flags);
+        let mut graphs = Vec::new();
+        for binary in [WAFER, CARGO] {
+            let mut graph = metadata(
+                command(binary, root, &args)
+                    .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "nightly")
+                    .output()
+                    .unwrap(),
+            );
+            assert_eq!(graph["version"], 1);
+            assert!(graph["units"].as_array().unwrap().iter().any(|unit| {
+                unit["dependencies"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|dep| dep["extern_crate_name"] == "vendor")
+            }));
+            for unit in graph["units"].as_array_mut().unwrap() {
+                let target = unit["target"].as_object_mut().unwrap();
+                if binary == WAFER {
+                    assert!(!target.contains_key("edition") && !target.contains_key("crate_types"));
+                    assert!(target["src_path"].as_str().unwrap().ends_with(".siox"));
+                } else {
+                    assert!(target.remove("edition").is_some());
+                    assert!(target.remove("crate_types").is_some());
+                    let path =
+                        Path::new(target["src_path"].as_str().unwrap()).with_extension("siox");
+                    target.insert("src_path".into(), path.to_str().unwrap().into());
+                }
+            }
+            graphs.push(graph);
+        }
+        assert_eq!(graphs[0], graphs[1]);
+    }
+    let locked = std::fs::read(root.join("Wafer.lock")).unwrap();
+    metadata(
+        command(
+            WAFER,
+            root,
+            &["build", "--unit-graph", "-Zunstable-options", "--locked"],
+        )
+        .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "nightly")
+        .output()
+        .unwrap(),
+    );
+    assert_eq!(std::fs::read(root.join("Wafer.lock")).unwrap(), locked);
+    assert!(!root.join("target/debug").exists());
+    assert!(!root.join("target/release").exists());
+}
+
+#[test]
+#[ignore = "requires actual WAFER_TEST_SIOXC"]
+fn unit_graph_planning_keeps_unsupported_and_unstable_options_gated() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        root,
+        "Wafer.toml",
+        "[package]\nname='controller'\nversion='1.0.0'\n",
+    );
+    write(root, "src/lib.siox", "planning only");
+    for extra in ["--ignore-rust-version", "-Zbuild-std"] {
+        let rejected = command(
+            WAFER,
+            root,
+            &["build", "--unit-graph", "-Zunstable-options", extra],
+        )
+        .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "nightly")
+        .env("SIOXC", "must-not-run-sioxc")
+        .output()
+        .unwrap();
+        assert!(!rejected.status.success());
+        assert!(
+            String::from_utf8_lossy(&rejected.stderr).contains("planning does not support"),
+            "{}",
+            String::from_utf8_lossy(&rejected.stderr)
+        );
+    }
+    let stable = command(WAFER, root, &["build", "--unit-graph"])
+        .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "stable")
+        .env("SIOXC", "must-not-run-sioxc")
+        .output()
+        .unwrap();
+    assert!(!stable.status.success());
+    assert!(String::from_utf8_lossy(&stable.stderr).contains("flag is unstable"));
+    let cross = command(
+        WAFER,
+        root,
+        &[
+            "build",
+            "--unit-graph",
+            "-Zunstable-options",
+            "--target",
+            "unsupported-siox-cross",
+        ],
+    )
+    .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "nightly")
+    .output()
+    .unwrap();
+    assert!(!cross.status.success());
+    assert!(String::from_utf8_lossy(&cross.stderr).contains("cross-target"));
+    assert!(!root.join("Wafer.lock").exists());
+    assert!(!root.join("target").exists());
+}

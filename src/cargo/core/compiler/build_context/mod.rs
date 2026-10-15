@@ -3,7 +3,8 @@
 use crate::core::PackageSet;
 use crate::core::Workspace;
 use crate::core::compiler::unit_graph::UnitGraph;
-use crate::core::compiler::{BuildConfig, CompileKind, Unit};
+// Modified for Wafer: share planning context without admitting Sioxc to the Rust runner.
+use crate::core::compiler::{BuildConfig, CompileKind, Unit, UnitTargetData};
 use crate::core::profiles::Profiles;
 use crate::util::Rustc;
 use crate::util::context::GlobalContext;
@@ -43,7 +44,7 @@ pub use self::target_info::{
 ///
 /// [`BuildRunner`]: crate::core::compiler::BuildRunner
 /// [`ops::create_bcx`]: crate::ops::create_bcx
-pub struct BuildContext<'a, 'gctx> {
+pub struct BuildContext<'a, 'gctx, TargetData = RustcTargetData<'gctx>> {
     /// The workspace the build is for.
     pub ws: &'a Workspace<'gctx>,
 
@@ -64,8 +65,8 @@ pub struct BuildContext<'a, 'gctx> {
     /// This holds ownership of the `Package` objects.
     pub packages: PackageSet<'gctx>,
 
-    /// Information about rustc and the target platform.
-    pub target_data: RustcTargetData<'gctx>,
+    /// Information about the selected compiler and target platform.
+    pub target_data: TargetData,
 
     /// The root units of `unit_graph` (units requested on the command-line).
     pub roots: Vec<Unit>,
@@ -80,18 +81,18 @@ pub struct BuildContext<'a, 'gctx> {
     pub all_kinds: HashSet<CompileKind>,
 }
 
-impl<'a, 'gctx> BuildContext<'a, 'gctx> {
+impl<'a, 'gctx, TargetData: UnitTargetData> BuildContext<'a, 'gctx, TargetData> {
     pub fn new(
         ws: &'a Workspace<'gctx>,
         packages: PackageSet<'gctx>,
         build_config: &'a BuildConfig,
         profiles: Profiles,
         extra_compiler_args: HashMap<Unit, Vec<String>>,
-        target_data: RustcTargetData<'gctx>,
+        target_data: TargetData,
         roots: Vec<Unit>,
         unit_graph: UnitGraph,
         scrape_units: Vec<Unit>,
-    ) -> CargoResult<BuildContext<'a, 'gctx>> {
+    ) -> CargoResult<BuildContext<'a, 'gctx, TargetData>> {
         let all_kinds = unit_graph
             .keys()
             .map(|u| u.kind)
@@ -114,11 +115,6 @@ impl<'a, 'gctx> BuildContext<'a, 'gctx> {
         })
     }
 
-    /// Information of the `rustc` this build task will use.
-    pub fn rustc(&self) -> &Rustc {
-        &self.target_data.rustc
-    }
-
     /// Gets the host architecture triple.
     ///
     /// For example, `x86_64-unknown-linux-gnu`, would be
@@ -126,7 +122,7 @@ impl<'a, 'gctx> BuildContext<'a, 'gctx> {
     /// - hardware-platform: `unknown`,
     /// - operating system: `linux-gnu`.
     pub fn host_triple(&self) -> InternedString {
-        self.target_data.rustc.host
+        self.target_data.host_triple()
     }
 
     /// Gets the number of jobs specified for this build.
@@ -140,5 +136,12 @@ impl<'a, 'gctx> BuildContext<'a, 'gctx> {
     /// `cargo rustc` or `cargo rustdoc`.
     pub fn extra_args_for(&self, unit: &Unit) -> Option<&Vec<String>> {
         self.extra_compiler_args.get(unit)
+    }
+}
+
+impl BuildContext<'_, '_> {
+    /// Information of the `rustc` this Rust build task will use.
+    pub fn rustc(&self) -> &Rustc {
+        &self.target_data.rustc
     }
 }

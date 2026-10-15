@@ -12,10 +12,12 @@
   with active manifest/lock names, nested boundaries and include/exclude rules.
 - [x] Share root/dependency unit planning and host-unit deduplication with Sioxc;
   verify versioned libraries, features, native cfg, filters and profiles via API.
+- [x] Use one shared build-context planner for both compilers and expose explicit
+  `build --unit-graph` CLI planning; preserve Rust std/MSRV and reject unsupported options.
 - Adapt external commands and remaining compiler/registry environment contracts.
 - Adapt compiler dep-info and build-unit fingerprints for Siox builds.
-- Integrate the shared unit planner into the build context/CLI; wire actual
-  compiler artifact names and configured Sioxc flags without Rust crate formats.
+- Integrate Sioxc execution with the shared runner; wire actual compiler artifact
+  names and configured Sioxc flags without Rust crate formats.
 - Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
 - Compile/reuse Siox dependencies with version-isolated identities and metadata.
 - Adapt native test discovery/batching and simulation/structural top selection.
@@ -27,9 +29,9 @@
 This is a new integration effort, not the earlier standalone Wafer's60% estimate.
 Copying upstream functionality does not prove it works with Siox.
 
-Verified adapter: 21 executable CLI/Git/metadata tests, four source-tracking
+Verified adapter: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions for both tools, one actual Sioxc probe integration,
-149 library tests (143 upstream, native selection/planning explicitly enabled), formatting
+150 library tests (143 upstream, native selection/planning explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
 Cargo-driven Siox compilation and compiled dependency libraries remain
 unsupported, not silently delegated to Rust. Compiler query
