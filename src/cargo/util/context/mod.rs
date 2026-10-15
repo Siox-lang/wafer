@@ -359,9 +359,14 @@ impl GlobalContext {
             .map(|path| cwd.join(path))
             .or_else(|| ::home::home_dir().map(|path| path.join(".wafer")))
             .ok_or_else(|| anyhow!("Wafer couldn't find your home directory; set WAFER_HOME"))?;
-        let mut context = Self::new(Shell::new(), cwd, homedir);
+        Ok(Self::new_wafer(Shell::new(), cwd, homedir))
+    }
+
+    /// Creates an embedded Wafer context without reading process directory/home settings.
+    pub fn new_wafer(shell: Shell, cwd: PathBuf, homedir: PathBuf) -> GlobalContext {
+        let mut context = Self::new(shell, cwd, homedir);
         context.wafer = true;
-        Ok(context)
+        context
     }
 
     pub(crate) fn config_key(&self, key: Option<&str>) -> ConfigKey {

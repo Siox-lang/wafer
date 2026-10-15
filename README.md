@@ -35,7 +35,8 @@ configuration environment keys use `WAFER_`, e.g. `WAFER_BUILD_TARGET_DIR`.
 and aliases retain Cargo's validation and precedence, but aliases cannot enable
 unsupported commands. Cargo home/project config and `CARGO_*` configuration
 overrides do not implicitly configure Wafer. Logging/profiling and completion
-use `WAFER_LOG*` and `WAFER_COMPLETE`. Remaining compiler/registry environment
+use `WAFER_LOG*` and `WAFER_COMPLETE`. Profiles use `WAFER_INCREMENTAL`, not
+`CARGO_INCREMENTAL`. Remaining compiler/registry environment
 contracts are still unadapted behind the unsupported-operation guard.
 
 `wafer generate-lockfile` resolves explicit path and Git dependencies through
@@ -61,8 +62,17 @@ Dependency filtering uses the execution host and its matching cfg facts, not
 LLVM's potentially different native design triple. This requires the new
 compiler-owned `-vV`/`--print` interface in the local `feat/toolchain-queries`
 compiler branch; released/current older compilers are rejected rather than
-treated as Rust. These probes are not yet wired into Cargo's unit planning, so
-build/check/test remain disabled. Compiled-library formats are not emulated.
+treated as Rust. The shared root/dependency unit planners now accept Sioxc
+platform data without Rust sysroots or crate-format probes. Native API acceptance
+covers versioned library units, features, profiles and target filters through
+Cargo's existing planner and host-unit deduplication. This is not CLI build
+support: the build context, execution, configured Sioxc flags and artifact/dep-info
+adapters still need integration, so build/check/test remain disabled.
+Compiled-library formats are not emulated.
+
+Embedded users can construct a sandboxed Wafer context with
+`GlobalContext::new_wafer(shell, cwd, home)`; the existing `new` remains Cargo's
+constructor. Neither requires changing the process directory or environment.
 
 Actual compiler-query acceptance is opt-in, not a fake compiler script or an
 implicit passing skip: set `WAFER_TEST_SIOXC` to that compiler binary and run
@@ -71,11 +81,14 @@ implicit passing skip: set `WAFER_TEST_SIOXC` to that compiler binary and run
 Full metadata comparisons and the Cargo reference native build additionally
 need `WAFER_TEST_RUSTC` pointing to the actual Rust1.90 compiler:
 `cargo test -p cargo --test wafer_metadata -- --ignored`.
+Both compiler paths are also required for the shared planner acceptance:
+`cargo test -p cargo --lib unit_generator::tests -- --ignored`.
 
 Adapter validation: 21 executable CLI/Git/metadata tests, four source-tracking
 regressions covering both tools, one actual Sioxc probe integration
-test and 147 library tests (including 143 upstream Cargo tests and the explicitly
-enabled native compiler-selection test) pass, along with formatting and strict
+test and 149 library tests (including 143 upstream Cargo tests and the explicitly
+enabled native compiler-selection and shared-planning tests) pass, along with
+formatting and strict
 relevant-target Clippy. Metadata graphs/features match Cargo, Git pins are
 retained, and the reference Cargo binary still builds and runs a native path
 dependency project. This is not Cargo-driven Siox build support. The full

@@ -10,10 +10,12 @@
   actual Sioxc host facts; conservatively reuse path/Git lock resolutions.
 - [x] Select source/freshness inputs through Cargo's existing filesystem/Git walker
   with active manifest/lock names, nested boundaries and include/exclude rules.
+- [x] Share root/dependency unit planning and host-unit deduplication with Sioxc;
+  verify versioned libraries, features, native cfg, filters and profiles via API.
 - Adapt external commands and remaining compiler/registry environment contracts.
 - Adapt compiler dep-info and build-unit fingerprints for Siox builds.
-- Wire Sioxc version/native-target/artifact-name queries into Cargo planning;
-  extend capabilities as the compiler provides compiled-library/dep-info contracts.
+- Integrate the shared unit planner into the build context/CLI; wire actual
+  compiler artifact names and configured Sioxc flags without Rust crate formats.
 - Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
 - Compile/reuse Siox dependencies with version-isolated identities and metadata.
 - Adapt native test discovery/batching and simulation/structural top selection.
@@ -27,7 +29,7 @@ Copying upstream functionality does not prove it works with Siox.
 
 Verified adapter: 21 executable CLI/Git/metadata tests, four source-tracking
 regressions for both tools, one actual Sioxc probe integration,
-147 library tests (143 upstream, native selection explicitly enabled), formatting
+149 library tests (143 upstream, native selection/planning explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
 Cargo-driven Siox compilation and compiled dependency libraries remain
 unsupported, not silently delegated to Rust. Compiler query

@@ -49,7 +49,7 @@ use std::{cmp, fmt, hash};
 #[derive(Clone, Debug)]
 pub struct Profiles {
     /// Incremental compilation can be overridden globally via:
-    /// - `CARGO_INCREMENTAL` environment variable.
+    /// - `CARGO_INCREMENTAL` / `WAFER_INCREMENTAL` environment variable.
     /// - `build.incremental` config value.
     incremental: Option<bool>,
     /// Map of profile name to directory name for that profile.
@@ -63,19 +63,29 @@ pub struct Profiles {
     original_profiles: BTreeMap<InternedString, TomlProfile>,
     /// The profile the user requested to use.
     requested_profile: InternedString,
-    /// The host target for rustc being used by this `Profiles`.
-    rustc_host: InternedString,
+    /// The execution host of the compiler used by this `Profiles`.
+    compiler_host: InternedString,
 }
 
 impl Profiles {
     pub fn new(ws: &Workspace<'_>, requested_profile: InternedString) -> CargoResult<Profiles> {
         let gctx = ws.gctx();
-        let incremental = match gctx.get_env_os("CARGO_INCREMENTAL") {
+        // Modified for Wafer: profiles use the actual compiler and tool namespace.
+        let incremental_key = if gctx.is_wafer() {
+            "WAFER_INCREMENTAL"
+        } else {
+            "CARGO_INCREMENTAL"
+        };
+        let incremental = match gctx.get_env_os(incremental_key) {
             Some(v) => Some(v == "1"),
             None => gctx.build_config()?.incremental,
         };
         let mut profiles = merge_config_profiles(ws, requested_profile)?;
-        let rustc_host = ws.gctx().load_global_rustc(Some(ws))?.host;
+        let compiler_host = if gctx.is_wafer() {
+            gctx.load_sioxc()?.host.as_str().into()
+        } else {
+            gctx.load_global_rustc(Some(ws))?.host
+        };
 
         let mut profile_makers = Profiles {
             incremental,
@@ -83,7 +93,7 @@ impl Profiles {
             by_name: HashMap::new(),
             original_profiles: profiles.clone(),
             requested_profile,
-            rustc_host,
+            compiler_host,
         };
 
         let trim_paths_enabled = ws.unstable_features().is_enabled(Feature::trim_paths())
@@ -293,7 +303,7 @@ impl Profiles {
         // in incremental cases.
         if profile.debuginfo.is_turned_on() && profile.split_debuginfo.is_none() {
             let target = match &kind {
-                CompileKind::Host => self.rustc_host.as_str(),
+                CompileKind::Host => self.compiler_host.as_str(),
                 CompileKind::Target(target) => target.short_name(),
             };
             if target.contains("-apple-") {

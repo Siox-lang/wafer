@@ -289,3 +289,57 @@ No new cache, compiler mock or dependency was added. Approximate integration
 estimate24%; native build-unit planning/compiler/artifact/dep-info contracts
 remain the next substantial work. Windows/macOS and full upstream integration
 suite remain unverified; compiler full gate remains separate and unwaived.
+
+## 2026-10-15 — Codex: compiler-neutral build-unit planning
+
+Own the shared unit-generator and unit-dependency planner's target-data seam,
+platform_data.rs and focused actual-compiler planning regressions. Keep the
+existing resolver, profiles, UnitInterner, dependency graph and host-unit
+deduplication algorithms; remove their dependency on Rust target/sysroot queries.
+Verify Sioxc plans through those exact algorithms with versioned path libraries,
+features, target filters and profiles, while actual Cargo native builds remain
+green. Do not fabricate a library format or enable build execution before its
+compiler/artifact/dep-info adapter exists. Compiler queries remain local; no LLVM
+ownership changes or push.
+
+Planner acceptance also needs hermetic embedded Wafer contexts. Add the explicit
+new_wafer constructor beside Cargo's existing new constructor and reuse it from
+for_wafer; do not mutate global environment/current directory in parallel tests.
+Update source API fixtures to use the same sandboxed constructor.
+
+First planner gate3811202 ended101, peak1135812608 bytes, before tests:
+new fixture omitted its CliFeatures import. Fix the import and add a real Rust
+configuration regression for compiler/documentation flags and link overrides,
+including Rc sharing; do not drop existing options while generalizing the seam.
+
+Retry3813743 ended101 before tests, peak747081728 bytes: a test-only
+InternedString comparison had an ambiguous into(). Compare its string value
+directly; no production change or passing runtime check is claimed.
+
+Planner gate3815262 reached tests:147 library tests passed,2 new tests failed.
+The actual Sioxc planner exposed a remaining Rust-only host probe in Profiles::new;
+own that shared profile host/incremental boundary too and select the actual tool.
+The fixture used CompileOptions' strict API default instead of the CLI's
+feature-filterable default; set that test input explicitly without changing
+Cargo's required-feature behavior. Keep the negative explicit-bin check.
+
+Planner3820436 exited/success/0, peak1561575424 bytes: all175 selected tests,
+fmt/strict Clippy and AST refresh pass (8733 nodes/19805 edges). Actual Cargo/
+Sioxc plans match for build/check, dev/release, optional features, native cfg
+filtering, explicit bin selection and same-library-name version isolation;
+required-feature failures and Rust flags/links Rc sharing are verified.
+Add opposing CARGO_INCREMENTAL/WAFER_INCREMENTAL values to the native fixture
+so the new namespace branch is covered before the final commit gate.
+
+Final planner gate siox-job-3000-1792077722607339619-3827326.service finished
+exited/success/0, peak1198813184 bytes. All175 tests pass (149 library,26
+CLI/Git/metadata/source/native integration), including explicit native tests,
+opposing incremental namespace overrides and the real Cargo native build/run.
+Fmt/strict relevant-target Clippy and AST update pass (8733 nodes/19805 edges).
+Shared planning accepts real Sioxc facts, not fabricated Rust target info; Rust
+options retain both content and Rc sharing. The build-context/CLI execution,
+configured Sioxc flags, compiled dependency formats and dep-info/fingerprint
+contracts remain unimplemented, not advertised as builds. Approximate scoped
+integration estimate27%. Compiler query branch remains uncommitted behind its
+separate full corpus gate, no LLVM changes or push. Next work is integrating
+this shared planner with the build context and compiler-specific execution.

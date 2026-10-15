@@ -16,11 +16,11 @@ fn write(root: &Path, path: &str, value: &str) {
 
 fn context(root: &Path, wafer: bool) -> GlobalContext {
     let mut context = if wafer {
-        GlobalContext::for_wafer().unwrap()
+        GlobalContext::new_wafer(Shell::new(), root.into(), root.join("home"))
     } else {
         GlobalContext::new(Shell::new(), root.into(), root.join("home"))
     };
-    // Source APIs use absolute fixture paths; no user configuration is needed.
+    // No user configuration is needed for source enumeration.
     context.set_values(Default::default()).unwrap();
     context.set_env(Default::default());
     context

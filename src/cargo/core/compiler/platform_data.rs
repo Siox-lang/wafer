@@ -1,13 +1,27 @@
 //! Platform facts needed by Cargo's shared dependency/feature resolver.
 
-use super::{CompileKind, RustcTargetData};
+use super::{BuildOutput, CompileKind, RustcTargetData};
 use crate::core::{Dependency, Workspace};
 use crate::util::{CargoResult, Sioxc, interning::InternedString};
+use std::{collections::BTreeMap, rc::Rc};
 
 pub trait PlatformData {
     fn host_triple(&self) -> InternedString;
     fn dep_platform_activated(&self, dep: &Dependency, kind: CompileKind) -> bool;
     fn merge_compile_kind(&mut self, kind: CompileKind) -> CargoResult<()>;
+}
+
+/// Compiler-owned options that participate in a build unit's identity.
+#[derive(Clone, Default)]
+pub struct UnitCompilerOptions {
+    pub compiler_flags: Rc<[String]>,
+    pub documentation_flags: Rc<[String]>,
+    pub links_overrides: Rc<BTreeMap<String, BuildOutput>>,
+}
+
+/// The unit planner needs options, not Rust sysroots or crate output formats.
+pub trait UnitTargetData: PlatformData {
+    fn unit_options(&self, kind: CompileKind) -> UnitCompilerOptions;
 }
 
 impl PlatformData for RustcTargetData<'_> {
@@ -22,17 +36,33 @@ impl PlatformData for RustcTargetData<'_> {
     }
 }
 
+impl UnitTargetData for RustcTargetData<'_> {
+    fn unit_options(&self, kind: CompileKind) -> UnitCompilerOptions {
+        UnitCompilerOptions {
+            compiler_flags: self.info(kind).rustflags.clone(),
+            documentation_flags: self.info(kind).rustdocflags.clone(),
+            links_overrides: self.target_config(kind).links_overrides.clone(),
+        }
+    }
+}
+
 /// Actual Sioxc execution-host facts; native cross-target codegen is not implied.
 pub struct SioxcTargetData {
     compiler: Sioxc,
     host: InternedString,
+    unit_options: UnitCompilerOptions,
 }
 
 impl SioxcTargetData {
     pub fn new(ws: &Workspace<'_>, requested: &[CompileKind]) -> CargoResult<Self> {
         let compiler = ws.gctx().load_sioxc()?;
         let host = compiler.host.as_str().into();
-        let mut data = Self { compiler, host };
+        let mut data = Self {
+            compiler,
+            host,
+            // shortcut: execution/configured Sioxc flags are gated; adapt before enabling builds.
+            unit_options: UnitCompilerOptions::default(),
+        };
         for kind in requested
             .iter()
             .copied()
@@ -47,6 +77,12 @@ impl SioxcTargetData {
             data.merge_compile_kind(kind)?;
         }
         Ok(data)
+    }
+}
+
+impl UnitTargetData for SioxcTargetData {
+    fn unit_options(&self, _kind: CompileKind) -> UnitCompilerOptions {
+        self.unit_options.clone()
     }
 }
 

@@ -23,8 +23,9 @@ use crate::CargoResult;
 use crate::core::compiler::UserIntent;
 use crate::core::compiler::artifact::match_artifacts_kind_with_targets;
 use crate::core::compiler::unit_graph::{UnitDep, UnitGraph};
+// Modified for Wafer: reuse the dependency planner with compiler-neutral unit options.
 use crate::core::compiler::{
-    CompileKind, CompileMode, CrateType, RustcTargetData, Unit, UnitInterner,
+    CompileKind, CompileMode, CrateType, Unit, UnitInterner, UnitTargetData,
 };
 use crate::core::dependency::{Artifact, ArtifactKind, ArtifactTarget, DepKind};
 use crate::core::profiles::{Profile, Profiles, UnitFor};
@@ -55,7 +56,7 @@ struct State<'a, 'gctx> {
     /// The high-level operation requested by the user.
     /// Used for preventing from building lib thrice.
     intent: UserIntent,
-    target_data: &'a RustcTargetData<'gctx>,
+    target_data: &'a dyn UnitTargetData,
     profiles: &'a Profiles,
     interner: &'a UnitInterner,
     // Units for `-Zrustdoc-scrape-examples`.
@@ -94,7 +95,7 @@ pub fn build_unit_dependencies<'a, 'gctx>(
     scrape_units: &[Unit],
     std_roots: &HashMap<CompileKind, Vec<Unit>>,
     intent: UserIntent,
-    target_data: &'a RustcTargetData<'gctx>,
+    target_data: &'a dyn UnitTargetData,
     profiles: &'a Profiles,
     interner: &'a UnitInterner,
 ) -> CargoResult<UnitGraph> {
@@ -859,6 +860,7 @@ fn new_unit_dep_with_profile(
         _ => None,
     };
     let features = state.activated_features(pkg.package_id(), features_for);
+    let options = state.target_data.unit_options(kind);
     let unit = state.interner.intern(
         pkg,
         target,
@@ -866,13 +868,9 @@ fn new_unit_dep_with_profile(
         kind,
         mode,
         features,
-        state.target_data.info(kind).rustflags.clone(),
-        state.target_data.info(kind).rustdocflags.clone(),
-        state
-            .target_data
-            .target_config(kind)
-            .links_overrides
-            .clone(),
+        options.compiler_flags,
+        options.documentation_flags,
+        options.links_overrides,
         state.is_std,
         /*dep_hash*/ 0,
         artifact.map_or(IsArtifact::No, |_| IsArtifact::Yes),

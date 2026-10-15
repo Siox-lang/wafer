@@ -7,7 +7,8 @@ use crate::core::compiler::UserIntent;
 use crate::core::compiler::rustdoc::RustdocScrapeExamples;
 use crate::core::compiler::unit_dependencies::IsArtifact;
 use crate::core::compiler::{CompileKind, CompileMode, Unit};
-use crate::core::compiler::{RustcTargetData, UnitInterner};
+// Modified for Wafer: plan units from compiler options, not Rust-only target info.
+use crate::core::compiler::{UnitInterner, UnitTargetData};
 use crate::core::dependency::DepKind;
 use crate::core::profiles::{Profiles, UnitFor};
 use crate::core::resolver::features::{self, FeaturesFor};
@@ -19,6 +20,9 @@ use crate::util::{CargoResult, closest_msg};
 use super::Packages;
 use super::compile_filter::{CompileFilter, FilterRule, LibRule};
 use super::packages::build_glob;
+
+#[cfg(test)]
+mod tests;
 
 /// A proposed target.
 ///
@@ -50,7 +54,7 @@ pub(super) struct UnitGenerator<'a, 'gctx> {
     pub ws: &'a Workspace<'gctx>,
     pub packages: &'a [&'a Package],
     pub spec: &'a Packages,
-    pub target_data: &'a RustcTargetData<'gctx>,
+    pub target_data: &'a dyn UnitTargetData,
     pub filter: &'a CompileFilter,
     pub requested_kinds: &'a [CompileKind],
     pub explicit_host_kind: CompileKind,
@@ -153,6 +157,7 @@ impl<'a> UnitGenerator<'a, '_> {
                     kind,
                 );
                 let kind = kind.for_target(target);
+                let options = self.target_data.unit_options(kind);
                 self.interner.intern(
                     pkg,
                     target,
@@ -160,9 +165,9 @@ impl<'a> UnitGenerator<'a, '_> {
                     kind,
                     target_mode,
                     features.clone(),
-                    self.target_data.info(kind).rustflags.clone(),
-                    self.target_data.info(kind).rustdocflags.clone(),
-                    self.target_data.target_config(kind).links_overrides.clone(),
+                    options.compiler_flags,
+                    options.documentation_flags,
+                    options.links_overrides,
                     /*is_std*/ false,
                     /*dep_hash*/ 0,
                     IsArtifact::No,
