@@ -2,7 +2,7 @@
 
 - [x] Bootstrap the isolated fork and a Wafer executable; preserve upstream Cargo.
 - [x] Discover Wafer.toml, workspace members and inherited metadata using Cargo code.
-- Infer Siox library/test/binary/example paths rather than Rust source files.
+- [x] Infer Siox library/test/binary/example/benchmark paths using Cargo's discovery.
 - Isolate Wafer home/config/environment, external commands and lockfiles.
 - Adapt compiler version/capability/target probes to honest sioxc interfaces.
 - Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
@@ -16,6 +16,6 @@
 This is a new integration effort, not the earlier standalone Wafer's60% estimate.
 Copying upstream functionality does not prove it works with Siox.
 
-Verified bootstrap: 4 executable CLI tests, 143 upstream Cargo library tests,
+Verified bootstrap: 8 executable CLI tests, 144 library tests (143 upstream),
 formatting and strict relevant-target Clippy. Compiler execution and dependency
 resolution remain unsupported, not silently delegated to Rust.

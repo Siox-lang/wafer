@@ -379,12 +379,15 @@ fn normalize_toml(
         normalized_toml.features = normalize_features(original_toml.features.as_ref())?;
 
         let auto_embedded = is_embedded.then_some(false);
+        let auto_defaults = auto_embedded.or(gctx.is_wafer().then_some(true));
+        let source_extension = if gctx.is_wafer() { "siox" } else { "rs" };
         normalized_toml.lib = targets::normalize_lib(
             original_toml.lib.as_ref(),
             package_root,
             package_name,
+            source_extension,
             edition,
-            original_package.autolib.or(auto_embedded),
+            original_package.autolib.or(auto_defaults),
             warnings,
         )?;
         let original_toml_bin = if is_embedded {
@@ -420,8 +423,9 @@ fn normalize_toml(
             original_toml_bin.as_ref().as_ref(),
             package_root,
             package_name,
+            source_extension,
             edition,
-            original_package.autobins.or(auto_embedded),
+            original_package.autobins.or(auto_defaults),
             warnings,
             errors,
             normalized_toml.lib.is_some(),
@@ -429,24 +433,27 @@ fn normalize_toml(
         normalized_toml.example = Some(targets::normalize_examples(
             original_toml.example.as_ref(),
             package_root,
+            source_extension,
             edition,
-            original_package.autoexamples.or(auto_embedded),
+            original_package.autoexamples.or(auto_defaults),
             warnings,
             errors,
         )?);
         normalized_toml.test = Some(targets::normalize_tests(
             original_toml.test.as_ref(),
             package_root,
+            source_extension,
             edition,
-            original_package.autotests.or(auto_embedded),
+            original_package.autotests.or(auto_defaults),
             warnings,
             errors,
         )?);
         normalized_toml.bench = Some(targets::normalize_benches(
             original_toml.bench.as_ref(),
             package_root,
+            source_extension,
             edition,
-            original_package.autobenches.or(auto_embedded),
+            original_package.autobenches.or(auto_defaults),
             warnings,
             errors,
         )?);
@@ -691,7 +698,16 @@ fn normalize_package_toml<'a>(
         .map(|value| field_inherit_with(value, "authors", || inherit()?.authors()))
         .transpose()?
         .map(manifest::InheritableField::Value);
-    let build = if is_embedded {
+    let build = if gctx.is_wafer() {
+        if !matches!(
+            original_package.build,
+            None | Some(TomlPackageBuild::Auto(false))
+        ) || original_package.metabuild.is_some()
+        {
+            anyhow::bail!("Wafer's build-script adapter is not implemented yet");
+        }
+        Some(TomlPackageBuild::Auto(false))
+    } else if is_embedded {
         Some(TomlPackageBuild::Auto(false))
     } else {
         if let Some(TomlPackageBuild::MultipleScript(_)) = original_package.build {
@@ -1495,9 +1511,10 @@ pub fn to_real_manifest(
     )?;
 
     if targets.iter().all(|t| t.is_custom_build()) {
+        let source_extension = if gctx.is_wafer() { "siox" } else { "rs" };
         bail!(
             "no targets specified in the manifest\n\
-                 either src/lib.rs, src/main.rs, a [lib] section, or \
+                 either src/lib.{source_extension}, src/main.{source_extension}, a [lib] section, or \
                  [[bin]] section must be present"
         )
     }

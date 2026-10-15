@@ -8,9 +8,13 @@ and its locked dependency graph intact. The new executable is named wafer.
 
 Siox projects use Wafer.toml and library names directly as namespaces. Bootstrap
 commands are `wafer locate-project` and `wafer metadata --no-deps --format-version 1`.
-For now source target paths must be explicit, e.g. `[lib] name = "vendor"` with
-`path = "src/lib.siox"`. Compilation, dependency resolution, mutation/registry
-commands and source auto-discovery still need adaptation. They are not implied
+Source targets follow Cargo's layout with `.siox` instead of `.rs`: `src/lib.siox`,
+`src/main.siox`, and files or `<name>/main.siox` below `src/bin/`, `examples/`,
+`tests/` and `benches/`. Explicit target paths and `auto* = false` overrides
+are supported. `[lib] name = "vendor"` sets the single library namespace.
+Rust legacy paths and automatic `build.rs` discovery do not apply to Wafer;
+explicit build scripts are rejected until their adapter exists. Compilation,
+dependency resolution and mutation/registry commands still need adaptation. They are not implied
 by the inherited Cargo help/API or resolver code. See TODO.md and chat.md.
 
 Bootstrap metadata uses Cargo's package/target/workspace shape but omits
@@ -19,8 +23,8 @@ byte-for-byte Rust metadata compatibility. Home/config/environment still use
 the inherited Cargo conventions until Wafer isolation is adapted; the current
 read-only commands do not fetch dependencies or invoke a compiler.
 
-Bootstrap validation: 4 executable CLI tests and 143 upstream Cargo library
-tests pass, along with formatting and strict relevant-target Clippy. The full
+Bootstrap validation: 8 executable CLI tests and 144 library tests (including
+143 upstream Cargo tests) pass, along with formatting and strict relevant-target Clippy. The full
 upstream integration suite and Sioxc compilation are not yet validated.
 
 Preserve upstream LICENSE-MIT/LICENSE-APACHE and applicable third-party notices.

@@ -54,3 +54,37 @@ completed (8670 nodes, 19627 edges at update time). No compiler execution,
 native simulation, full upstream integration or platform acceptance claimed.
 Checkpoint only: Cargo-based Siox integration is approximately5% implemented;
 compiler, dependency, test, configuration and artifact adapters remain open.
+
+## 2026-10-15 — Codex: Siox target auto-discovery
+
+Own shared targets.rs inference, its manifest-normalization callers and Wafer
+CLI regression tests/docs. Thread the active source extension through Cargo's
+existing discovery/diagnostic code; keep Cargo .rs behavior and legacy paths
+unchanged. Wafer should infer .siox targets with Cargo's layout/overrides, not
+Rust files, Rust2015 legacy fallbacks or automatic build.rs scripts. Explicit
+Wafer build scripts remain rejected until a build-script adapter exists. No
+compiler execution or dependency resolution is being enabled by this step.
+
+Verification1792071751871216366-3497014 ended75 on the shared lock without
+running checks. Retry queued in exec session50006 behind confirmed live holder
+3496774; poll that session for the next unit/log, without restarting live jobs.
+Source is frozen for the queued fmt/tests/Clippy/graph gate. No pass claimed.
+
+Gate1792071789514906921-3497877 ended101, peak1304297472 bytes: compilation
+and7/8 CLI tests passed, but a new diagnostic test incorrectly expected metadata
+to fail for invalid optional test targets. Cargo intentionally defers those
+errors while returning usable targets. Preserve that behavior; assert CLI
+partial metadata and test deferred .siox diagnostic text directly in the shared
+normalizer. No production error handling is removed to satisfy this correction.
+
+Corrected gate siox-job-3000-1792071898357388500-3505206.service finished
+exited/success/0, peak1052573696 bytes: 8 executable CLI tests, 144 library tests
+(143 upstream plus one language-specific normalizer regression), fmt and strict
+relevant-target Clippy pass. Graph refresh completed (8671 nodes/19630 edges).
+Tests compare actual Cargo/Wafer discovery, explicit/default targets, auto flags,
+Rust-file exclusion, deferred invalid test targets and unsupported build scripts.
+Checkpoint estimate approximately8% of Cargo-based Siox integration: discovery
+is verified, but compiler, dependencies, configuration, artifacts and native
+test execution remain unadapted. No full upstream integration/platform/native
+simulation acceptance or push claimed. Next boundary: isolated Wafer config
+and honest Sioxc capability/target probes, then shared compilation planning.

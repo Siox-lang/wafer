@@ -10,6 +10,8 @@
 //! It is a bit tricky because we need match explicit information from `Cargo.toml`
 //! with implicit info in directory layout.
 
+// Modified for Wafer: reuse target inference with the active source extension.
+
 use std::collections::HashSet;
 use std::fs::{self, DirEntry};
 use std::path::{Path, PathBuf};
@@ -146,6 +148,7 @@ pub fn normalize_lib(
     original_lib: Option<&TomlLibTarget>,
     package_root: &Path,
     package_name: &str,
+    source_extension: &str,
     edition: Edition,
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
@@ -167,7 +170,7 @@ pub fn normalize_lib(
 
         Ok(Some(lib))
     } else {
-        let inferred = inferred_lib(package_root);
+        let inferred = inferred_lib(package_root, source_extension);
         let lib = original_lib.cloned().or_else(|| {
             inferred.as_ref().map(|lib| TomlTarget {
                 path: Some(PathValue(lib.clone())),
@@ -190,7 +193,10 @@ pub fn normalize_lib(
             } else {
                 let name = name_or_panic(&lib);
                 let legacy_path = Path::new("src").join(format!("{name}.rs"));
-                if edition == Edition::Edition2015 && package_root.join(&legacy_path).exists() {
+                if source_extension == "rs"
+                    && edition == Edition::Edition2015
+                    && package_root.join(&legacy_path).exists()
+                {
                     warnings.push(format!(
                         "path `{}` was erroneously implicitly accepted for library `{name}`,\n\
                      please rename the file to `src/lib.rs` or set lib.path in Cargo.toml",
@@ -200,7 +206,7 @@ pub fn normalize_lib(
                 } else {
                     anyhow::bail!(
                         "can't find library `{name}`, \
-                     rename file to `src/lib.rs` or specify lib.path",
+                     rename file to `src/lib.{source_extension}` or specify lib.path",
                     )
                 }
             }
@@ -274,6 +280,7 @@ pub fn normalize_bins(
     toml_bins: Option<&Vec<TomlBinTarget>>,
     package_root: &Path,
     package_name: &str,
+    source_extension: &str,
     edition: Edition,
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
@@ -293,7 +300,7 @@ pub fn normalize_bins(
         }
         Ok(toml_bins)
     } else {
-        let inferred = inferred_bins(package_root, package_name);
+        let inferred = inferred_bins(package_root, package_name, source_extension);
 
         let mut bins = toml_targets_and_inferred(
             toml_bins,
@@ -319,8 +326,12 @@ pub fn normalize_bins(
                 &inferred,
                 TARGET_KIND_BIN,
                 package_root,
+                source_extension,
                 edition,
                 &mut |_| {
+                    if source_extension != "rs" {
+                        return None;
+                    }
                     if let Some(legacy_path) =
                         legacy_bin_path(package_root, name_or_panic(bin), has_lib)
                     {
@@ -408,12 +419,19 @@ fn legacy_bin_path(package_root: &Path, name: &str, has_lib: bool) -> Option<Pat
 pub fn normalize_examples(
     toml_examples: Option<&Vec<TomlExampleTarget>>,
     package_root: &Path,
+    source_extension: &str,
     edition: Edition,
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
     errors: &mut Vec<String>,
 ) -> CargoResult<Vec<TomlExampleTarget>> {
-    let mut inferred = || infer_from_directory(&package_root, Path::new(DEFAULT_EXAMPLE_DIR_NAME));
+    let mut inferred = || {
+        infer_from_directory(
+            package_root,
+            Path::new(DEFAULT_EXAMPLE_DIR_NAME),
+            source_extension,
+        )
+    };
 
     let targets = normalize_targets(
         TARGET_KIND_HUMAN_EXAMPLE,
@@ -421,6 +439,7 @@ pub fn normalize_examples(
         toml_examples,
         &mut inferred,
         package_root,
+        source_extension,
         edition,
         autodiscover,
         warnings,
@@ -466,12 +485,19 @@ fn to_example_targets(
 pub fn normalize_tests(
     toml_tests: Option<&Vec<TomlTestTarget>>,
     package_root: &Path,
+    source_extension: &str,
     edition: Edition,
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
     errors: &mut Vec<String>,
 ) -> CargoResult<Vec<TomlTestTarget>> {
-    let mut inferred = || infer_from_directory(&package_root, Path::new(DEFAULT_TEST_DIR_NAME));
+    let mut inferred = || {
+        infer_from_directory(
+            package_root,
+            Path::new(DEFAULT_TEST_DIR_NAME),
+            source_extension,
+        )
+    };
 
     let targets = normalize_targets(
         TARGET_KIND_HUMAN_TEST,
@@ -479,6 +505,7 @@ pub fn normalize_tests(
         toml_tests,
         &mut inferred,
         package_root,
+        source_extension,
         edition,
         autodiscover,
         warnings,
@@ -517,6 +544,7 @@ fn to_test_targets(
 pub fn normalize_benches(
     toml_benches: Option<&Vec<TomlBenchTarget>>,
     package_root: &Path,
+    source_extension: &str,
     edition: Edition,
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
@@ -524,6 +552,9 @@ pub fn normalize_benches(
 ) -> CargoResult<Vec<TomlBenchTarget>> {
     let mut legacy_warnings = vec![];
     let mut legacy_bench_path = |bench: &TomlTarget| {
+        if source_extension != "rs" {
+            return None;
+        }
         let legacy_path = Path::new("src").join("bench.rs");
         if !(name_or_panic(bench) == "bench" && package_root.join(&legacy_path).exists()) {
             return None;
@@ -537,7 +568,13 @@ pub fn normalize_benches(
         Some(legacy_path)
     };
 
-    let mut inferred = || infer_from_directory(&package_root, Path::new(DEFAULT_BENCH_DIR_NAME));
+    let mut inferred = || {
+        infer_from_directory(
+            package_root,
+            Path::new(DEFAULT_BENCH_DIR_NAME),
+            source_extension,
+        )
+    };
 
     let targets = normalize_targets_with_legacy_path(
         TARGET_KIND_HUMAN_BENCH,
@@ -545,6 +582,7 @@ pub fn normalize_benches(
         toml_benches,
         &mut inferred,
         package_root,
+        source_extension,
         edition,
         autodiscover,
         warnings,
@@ -609,6 +647,7 @@ fn normalize_targets(
     toml_targets: Option<&Vec<TomlTarget>>,
     inferred: &mut dyn FnMut() -> Vec<(String, PathBuf)>,
     package_root: &Path,
+    source_extension: &str,
     edition: Edition,
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
@@ -621,6 +660,7 @@ fn normalize_targets(
         toml_targets,
         inferred,
         package_root,
+        source_extension,
         edition,
         autodiscover,
         warnings,
@@ -636,6 +676,7 @@ fn normalize_targets_with_legacy_path(
     toml_targets: Option<&Vec<TomlTarget>>,
     inferred: &mut dyn FnMut() -> Vec<(String, PathBuf)>,
     package_root: &Path,
+    source_extension: &str,
     edition: Edition,
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
@@ -686,6 +727,7 @@ fn normalize_targets_with_legacy_path(
                 &inferred,
                 target_kind,
                 package_root,
+                source_extension,
                 edition,
                 legacy_path,
             );
@@ -703,8 +745,8 @@ fn normalize_targets_with_legacy_path(
     }
 }
 
-fn inferred_lib(package_root: &Path) -> Option<PathBuf> {
-    let lib = Path::new("src").join("lib.rs");
+fn inferred_lib(package_root: &Path, source_extension: &str) -> Option<PathBuf> {
+    let lib = Path::new("src").join(format!("lib.{source_extension}"));
     if package_root.join(&lib).exists() {
         Some(lib)
     } else {
@@ -712,20 +754,31 @@ fn inferred_lib(package_root: &Path) -> Option<PathBuf> {
     }
 }
 
-fn inferred_bins(package_root: &Path, package_name: &str) -> Vec<(String, PathBuf)> {
-    let main = "src/main.rs";
+fn inferred_bins(
+    package_root: &Path,
+    package_name: &str,
+    source_extension: &str,
+) -> Vec<(String, PathBuf)> {
+    let main = Path::new("src").join(format!("main.{source_extension}"));
     let mut result = Vec::new();
-    if package_root.join(main).exists() {
-        let main = PathBuf::from(main);
+    if package_root.join(&main).exists() {
         result.push((package_name.to_string(), main));
     }
     let default_bin_dir_name = Path::new("src").join("bin");
-    result.extend(infer_from_directory(package_root, &default_bin_dir_name));
+    result.extend(infer_from_directory(
+        package_root,
+        &default_bin_dir_name,
+        source_extension,
+    ));
 
     result
 }
 
-fn infer_from_directory(package_root: &Path, relpath: &Path) -> Vec<(String, PathBuf)> {
+fn infer_from_directory(
+    package_root: &Path,
+    relpath: &Path,
+    source_extension: &str,
+) -> Vec<(String, PathBuf)> {
     let directory = package_root.join(relpath);
     let entries = match fs::read_dir(directory) {
         Err(_) => return Vec::new(),
@@ -735,14 +788,18 @@ fn infer_from_directory(package_root: &Path, relpath: &Path) -> Vec<(String, Pat
     entries
         .filter_map(|e| e.ok())
         .filter(is_not_dotfile)
-        .filter_map(|d| infer_any(package_root, &d))
+        .filter_map(|d| infer_any(package_root, &d, source_extension))
         .collect()
 }
 
-fn infer_any(package_root: &Path, entry: &DirEntry) -> Option<(String, PathBuf)> {
+fn infer_any(
+    package_root: &Path,
+    entry: &DirEntry,
+    source_extension: &str,
+) -> Option<(String, PathBuf)> {
     if entry.file_type().map_or(false, |t| t.is_dir()) {
-        infer_subdirectory(package_root, entry)
-    } else if entry.path().extension().and_then(|p| p.to_str()) == Some("rs") {
+        infer_subdirectory(package_root, entry, source_extension)
+    } else if entry.path().extension().and_then(|p| p.to_str()) == Some(source_extension) {
         infer_file(package_root, entry)
     } else {
         None
@@ -759,9 +816,13 @@ fn infer_file(package_root: &Path, entry: &DirEntry) -> Option<(String, PathBuf)
     Some((stem, path))
 }
 
-fn infer_subdirectory(package_root: &Path, entry: &DirEntry) -> Option<(String, PathBuf)> {
+fn infer_subdirectory(
+    package_root: &Path,
+    entry: &DirEntry,
+    source_extension: &str,
+) -> Option<(String, PathBuf)> {
     let path = entry.path();
-    let main = path.join("main.rs");
+    let main = path.join(format!("main.{source_extension}"));
     let name = path.file_name()?.to_str()?.to_owned();
     if main.exists() {
         let main = main
@@ -952,8 +1013,14 @@ fn target_path_not_found_error_message(
     target: &TomlTarget,
     target_kind: &str,
     inferred: &[(String, PathBuf)],
+    source_extension: &str,
 ) -> String {
-    fn possible_target_paths(name: &str, kind: &str, commonly_wrong: bool) -> [PathBuf; 2] {
+    fn possible_target_paths(
+        name: &str,
+        kind: &str,
+        commonly_wrong: bool,
+        source_extension: &str,
+    ) -> [PathBuf; 2] {
         let mut target_path = PathBuf::new();
         match (kind, commonly_wrong) {
             // commonly wrong paths
@@ -969,11 +1036,12 @@ fn target_path_not_found_error_message(
 
         let target_path_file = {
             let mut path = target_path.clone();
-            path.push(format!("{name}.rs"));
+            path.push(format!("{name}.{source_extension}"));
             path
         };
         let target_path_subdir = {
-            target_path.extend([name, "main.rs"]);
+            target_path.push(name);
+            target_path.push(format!("main.{source_extension}"));
             target_path
         };
         return [target_path_file, target_path_subdir];
@@ -981,8 +1049,9 @@ fn target_path_not_found_error_message(
 
     let target_name = name_or_panic(target);
 
-    let commonly_wrong_paths = possible_target_paths(&target_name, target_kind, true);
-    let possible_paths = possible_target_paths(&target_name, target_kind, false);
+    let commonly_wrong_paths =
+        possible_target_paths(&target_name, target_kind, true, source_extension);
+    let possible_paths = possible_target_paths(&target_name, target_kind, false, source_extension);
 
     let msg = closest_msg(target_name, inferred.iter(), |(n, _p)| n, target_kind);
     if let Some((wrong_path, possible_path)) = commonly_wrong_paths
@@ -1011,6 +1080,7 @@ fn target_path(
     inferred: &[(String, PathBuf)],
     target_kind: &str,
     package_root: &Path,
+    source_extension: &str,
     edition: Edition,
     legacy_path: &mut dyn FnMut(&TomlTarget) -> Option<PathBuf>,
 ) -> Result<PathBuf, String> {
@@ -1040,6 +1110,7 @@ fn target_path(
                 target,
                 target_kind,
                 inferred,
+                source_extension,
             ))
         }
         (Some(p0), Some(p1)) => {
@@ -1048,10 +1119,15 @@ fn target_path(
                     return Ok(path);
                 }
             }
+            let tool_name = if source_extension == "rs" {
+                "Cargo"
+            } else {
+                "Wafer"
+            };
             Err(format!(
                 "\
 cannot infer path for `{}` {}
-Cargo doesn't know which to use because multiple target files found at `{}` and `{}`.",
+{tool_name} doesn't know which to use because multiple target files found at `{}` and `{}`.",
                 name_or_panic(target),
                 target_kind,
                 p0.strip_prefix(package_root).unwrap_or(&p0).display(),
@@ -1228,4 +1304,87 @@ fn validate_crate_types(
         edition,
         warnings,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_discovery_records_language_specific_missing_and_ambiguous_paths() {
+        for (extension, tool_name) in [("rs", "Cargo"), ("siox", "Wafer")] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            fs::create_dir(root.join("test")).unwrap();
+            fs::write(
+                root.join(format!("test/smoke.{extension}")),
+                "wrong directory",
+            )
+            .unwrap();
+            let targets = vec![TomlTarget {
+                name: Some("smoke".to_owned()),
+                ..TomlTarget::new()
+            }];
+            let mut warnings = Vec::new();
+            let mut errors = Vec::new();
+            let normalized = normalize_tests(
+                Some(&targets),
+                root,
+                extension,
+                Edition::Edition2015,
+                Some(true),
+                &mut warnings,
+                &mut errors,
+            )
+            .unwrap();
+            assert!(normalized.is_empty());
+            assert_eq!(errors.len(), 1);
+            assert!(
+                errors[0].contains(&format!("test/smoke.{extension}")),
+                "{errors:?}"
+            );
+            assert!(
+                errors[0].contains(&format!("tests/smoke.{extension}")),
+                "{errors:?}"
+            );
+
+            fs::create_dir_all(root.join("tests/smoke")).unwrap();
+            fs::write(
+                root.join(format!("tests/smoke.{extension}")),
+                "first candidate",
+            )
+            .unwrap();
+            fs::write(
+                root.join(format!("tests/smoke/main.{extension}")),
+                "second candidate",
+            )
+            .unwrap();
+            errors.clear();
+            let normalized = normalize_tests(
+                Some(&targets),
+                root,
+                extension,
+                Edition::Edition2015,
+                Some(true),
+                &mut warnings,
+                &mut errors,
+            )
+            .unwrap();
+            assert!(normalized.is_empty());
+            assert_eq!(errors.len(), 1);
+            assert!(errors[0].contains("multiple target files"), "{errors:?}");
+            assert!(
+                errors[0].contains(&format!("{tool_name} doesn't know")),
+                "{errors:?}"
+            );
+            assert!(
+                errors[0].contains(&format!("tests/smoke.{extension}")),
+                "{errors:?}"
+            );
+            assert!(
+                errors[0].contains(&format!("tests/smoke/main.{extension}")),
+                "{errors:?}"
+            );
+        }
+    }
 }

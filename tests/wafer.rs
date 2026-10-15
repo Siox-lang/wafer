@@ -37,6 +37,15 @@ fn success(output: Output) -> String {
 const WAFER: &str = env!("CARGO_BIN_EXE_wafer");
 const CARGO: &str = env!("CARGO_BIN_EXE_cargo");
 
+fn metadata(binary: &str, root: &Path) -> serde_json::Value {
+    serde_json::from_str(&success(cli(
+        binary,
+        root,
+        &["metadata", "--no-deps", "--format-version", "1"],
+    )))
+    .unwrap()
+}
+
 #[test]
 fn wafer_bootstrap_brands_and_rejects_unadapted_operations_before_side_effects() {
     let dir = tempfile::tempdir().unwrap();
@@ -205,4 +214,203 @@ fn wafer_workspaces_and_inherited_package_metadata_use_wafer_manifests() {
         PathBuf::from(location.trim()),
         dir.path().join("Wafer.toml")
     );
+}
+
+#[test]
+fn target_discovery_uses_each_languages_extension_and_preserves_cargo_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    for manifest in ["Cargo.toml", "Wafer.toml"] {
+        write(
+            dir.path(),
+            manifest,
+            "[package]\nname='controller'\n[lib]\nname='vendor'\n",
+        );
+    }
+    let sources = [
+        ("lib", "vendor", "src/lib"),
+        ("bin", "controller", "src/main"),
+        ("bin", "tool", "src/bin/tool"),
+        ("bin", "nested_tool", "src/bin/nested_tool/main"),
+        ("example", "demo", "examples/demo"),
+        ("example", "nested_demo", "examples/nested_demo/main"),
+        ("test", "smoke", "tests/smoke"),
+        ("test", "nested_smoke", "tests/nested_smoke/main"),
+        ("bench", "perf", "benches/perf"),
+        ("bench", "nested_perf", "benches/nested_perf/main"),
+    ];
+    for ext in ["rs", "siox"] {
+        for (_, _, path) in sources {
+            write(
+                dir.path(),
+                &format!("{path}.{ext}"),
+                "metadata must not compile this",
+            );
+        }
+        for path in [
+            "tests/.hidden",
+            "tests/support/helper",
+            "tests/rust_only/main",
+        ] {
+            if path != "tests/rust_only/main" || ext == "rs" {
+                write(
+                    dir.path(),
+                    &format!("{path}.{ext}"),
+                    "not an inferred Siox test",
+                );
+            }
+        }
+    }
+    write(dir.path(), "build.rs", "not a Siox build script");
+
+    for (binary, ext) in [(CARGO, "rs"), (WAFER, "siox")] {
+        let json = metadata(binary, dir.path());
+        let targets = json["packages"][0]["targets"].as_array().unwrap();
+        for (kind, name, path) in sources {
+            assert!(
+                targets.iter().any(|target| {
+                    target["name"] == name
+                        && target["kind"] == serde_json::json!([kind])
+                        && target["src_path"]
+                            == dir.path().join(format!("{path}.{ext}")).to_str().unwrap()
+                }),
+                "{binary}: {kind} {name}: {targets:?}"
+            );
+        }
+        assert_eq!(
+            targets.len(),
+            sources.len() + if ext == "rs" { 2 } else { 0 }
+        );
+        if binary == WAFER {
+            assert!(
+                targets
+                    .iter()
+                    .all(|target| target["src_path"].as_str().unwrap().ends_with(".siox"))
+            );
+        }
+    }
+}
+
+#[test]
+fn wafer_discovery_merges_explicit_targets_and_honors_auto_discovery_switches() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        "Wafer.toml",
+        "[package]\nname='controller'\nbuild=false\n[lib]\nname='vendor'\n[[test]]\nname='named'\npath='checks/custom.siox'\n",
+    );
+    for path in [
+        "src/lib.siox",
+        "src/main.siox",
+        "tests/smoke.siox",
+        "checks/custom.siox",
+        "examples/demo.siox",
+        "benches/perf.siox",
+    ] {
+        write(dir.path(), path, "metadata only");
+    }
+    let json = metadata(WAFER, dir.path());
+    let targets = json["packages"][0]["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 6);
+    assert!(targets.iter().any(|target| target["name"] == "smoke"));
+    assert!(targets.iter().any(|target| target["name"] == "named"));
+
+    write(
+        dir.path(),
+        "Wafer.toml",
+        "[package]\nname='controller'\nautolib=false\nautobins=false\nautotests=false\nautoexamples=false\nautobenches=false\n[lib]\nname='vendor'\npath='src/lib.siox'\n[[test]]\nname='named'\npath='checks/custom.siox'\n",
+    );
+    let json = metadata(WAFER, dir.path());
+    let targets = json["packages"][0]["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 2);
+    assert!(
+        targets
+            .iter()
+            .all(|target| target["name"] == "vendor" || target["name"] == "named")
+    );
+}
+
+#[test]
+fn wafer_discovery_diagnostics_use_siox_and_never_take_rust_legacy_fallbacks() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "src/lib.rs", "not a Siox source");
+    write(dir.path(), "src/vendor.rs", "not a Siox legacy library");
+    for (manifest, message) in [
+        ("[package]\nname='controller'\n", "src/lib.siox"),
+        (
+            "[package]\nname='controller'\n[lib]\nname='vendor'\n",
+            "can't find library `vendor`",
+        ),
+        (
+            "[package]\nname='controller'\n[[bin]]\nname='missing'\n",
+            "src/bin/missing.siox",
+        ),
+    ] {
+        write(dir.path(), "Wafer.toml", manifest);
+        let output = cli(
+            WAFER,
+            dir.path(),
+            &["metadata", "--no-deps", "--format-version", "1"],
+        );
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success());
+        assert!(error.contains(message), "{error}");
+        assert!(
+            !error.contains("src/lib.rs") && !error.contains("missing.rs"),
+            "{error}"
+        );
+    }
+    write(dir.path(), "src/lib.siox", "metadata only");
+    write(dir.path(), "test/smoke.siox", "wrong directory");
+    write(
+        dir.path(),
+        "Wafer.toml",
+        "[package]\nname='controller'\n[[test]]\nname='smoke'\n",
+    );
+    write(
+        dir.path(),
+        "Cargo.toml",
+        "[package]\nname='controller'\n[[test]]\nname='smoke'\n",
+    );
+    write(dir.path(), "test/smoke.rs", "wrong directory");
+    // Cargo metadata defers invalid test-target errors and keeps usable targets.
+    for binary in [WAFER, CARGO] {
+        let json = metadata(binary, dir.path());
+        let targets = json["packages"][0]["targets"].as_array().unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0]["kind"], serde_json::json!(["lib"]));
+    }
+
+    write(dir.path(), "tests/smoke.siox", "first candidate");
+    write(dir.path(), "tests/smoke/main.siox", "second candidate");
+    write(dir.path(), "tests/smoke.rs", "first candidate");
+    write(dir.path(), "tests/smoke/main.rs", "second candidate");
+    for binary in [WAFER, CARGO] {
+        let json = metadata(binary, dir.path());
+        assert_eq!(json["packages"][0]["targets"].as_array().unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn wafer_explicit_build_scripts_fail_until_their_adapter_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "src/lib.siox", "metadata only");
+    for setting in ["build=true", "build='build.siox'", "metabuild=['generate']"] {
+        write(
+            dir.path(),
+            "Wafer.toml",
+            &format!("[package]\nname='controller'\n{setting}\n"),
+        );
+        let output = cli(
+            WAFER,
+            dir.path(),
+            &["metadata", "--no-deps", "--format-version", "1"],
+        );
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("build-script adapter is not implemented"),
+            "{setting}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
