@@ -374,7 +374,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
         self.record_units_requiring_metadata();
 
-        let files = CompilationFiles::new(self, host_layout, targets);
+        let files = CompilationFiles::new(self.bcx, &self.lto, host_layout, targets);
         self.files = Some(files);
         Ok(())
     }

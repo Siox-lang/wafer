@@ -6,7 +6,7 @@
 //! * [`RustcTargetData::dep_platform_activated`] to check if platform is activated.
 //! * [`RustcTargetData::info`] to get a [`TargetInfo`] for an in-depth query.
 //! * [`TargetInfo::rustc_outputs`] to get a list of supported file types.
-// Modified for Wafer: share compiler flag precedence without interpreting Siox as Rust.
+// Modified for Wafer: shared flags and compiler-owned filenames without fabricated Rust outputs.
 
 use crate::core::compiler::apply_env_config;
 use crate::core::compiler::{BuildRunner, CompileKind, CompileMode, CompileTarget, CrateType};
@@ -101,6 +101,23 @@ pub struct FileType {
 }
 
 impl FileType {
+    /// Decode a native compiler's filename probe without assigning a Rust crate type.
+    pub(crate) fn from_compiler_filename(filename: &str, probe: &str) -> CargoResult<Self> {
+        let (prefix, suffix) = filename
+            .split_once(probe)
+            .filter(|(_, suffix)| !suffix.contains(probe))
+            .with_context(|| {
+                format!("compiler filename {filename:?} must contain exactly one probe {probe:?}")
+            })?;
+        Ok(Self {
+            flavor: FileFlavor::Normal,
+            crate_type: None,
+            prefix: prefix.into(),
+            suffix: suffix.into(),
+            should_replace_hyphens: false,
+        })
+    }
+
     /// The filename for this `FileType` created by rustc.
     pub fn output_filename(&self, target: &Target, metadata: Option<&str>) -> String {
         match metadata {

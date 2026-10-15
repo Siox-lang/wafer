@@ -97,6 +97,15 @@ wrappers, sysroot search paths and documentation commands stay Rust-only.
 Callers still prepare output layouts and validated invocation arguments. This
 does not yet connect Siox units to Cargo's scheduler or enable CLI builds.
 
+The artifact adapter also uses Cargo's `CompilationFiles` hashes,
+output-name cache and planned uplift/export paths, probing Sioxc's actual native object/test
+filenames instead of inventing Rust library formats. Its package/version/mode/
+feature/flag namespaces are not a native freshness or compiled-library ABI key.
+Exact compiler-build identity, reusable library metadata and shared runner
+integration remain required. Native acceptance verifies actual outputs and unit
+namespace separation; it does not link/import the independently emitted objects
+as reusable compiled libraries or decide build freshness.
+
 Actual compiler-query acceptance is opt-in, not a fake compiler script or an
 implicit passing skip: set `WAFER_TEST_SIOXC` to that compiler binary and run
 `cargo test -p cargo --test sioxc_toolchain -- --ignored` plus
@@ -114,8 +123,8 @@ Native shared-process acceptance uses the same compiler/std variables:
 
 Adapter validation: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions covering both tools, one actual Sioxc probe integration
-test and 162 library tests (including 143 upstream Cargo tests and the explicitly
-enabled native compiler-selection, shared-planning and process-setup tests) pass, along with
+test and 166 library tests (including 143 upstream Cargo tests and the explicitly
+enabled native compiler-selection, shared-planning, process-setup and artifact tests) pass, along with
 formatting and strict relevant-target Clippy. Metadata/unit graphs and features match Cargo, Git pins
 are retained, and the reference Cargo binary still builds and runs a native path
 dependency project. This is not Cargo-driven Siox build support. The full

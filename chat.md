@@ -525,3 +525,45 @@ ambiguous runner/primary-override failures pass. Cargo reference build/run stays
 green. No Siox scheduler integration, CLI build, compiled libraries or compiler
 gate waiver is claimed. Scoped integration estimate36%; no new dependencies or
 push. Only documentation/evidence changes follow this accepted semantic state.
+
+## 2026-10-15 — Codex: shared native artifact layout
+
+Own compilation_files.rs, its constructor call, FileType filename probing and
+focused acceptance. Reuse Cargo's metadata hashes/output cache/uplift/export
+layout with compiler-specific file facts, not a parallel Siox artifact manager.
+Remove the metadata calculator's unnecessary runner dependency by taking its
+actual context/LTO inputs. Query real Sioxc filenames, reject unsupported Rust
+artifact/check/doc/SBOM modes and keep Cargo's reference layout unchanged.
+Unit-path identity is not a full native freshness/ABI key: exact compiler build
+identity and reusable library metadata remain required before execution/cache
+reuse. Published twelve verified commits through00f6492 to origin/feat/siox-adapter
+at the user's request; main stayed6dc2601. New changes remain local until verified
+and a separate push request. Preserve compiler WIP and Claude's LLVM ownership.
+
+First artifact gate257522 exited75 before running. Verified live peer242749
+holds the lock for Claude's full siox-conv CI. Queue the same complete fork
+gate behind this exact PID, preserve its exec session, and freeze artifact
+source until that eventual unit is terminal. Native artifact tests are not
+yet claimed green; contention is not a test failure or a pass.
+
+Queued artifact verification exec session66553 is waiting on the confirmed live
+peer242749. Resume the same session for its eventual unit/log, then inspect that
+unit to terminal. Do not restart a live check after an observation interruption.
+
+Artifact gate siox-job-3000-1792099640489436215-258684.service finished
+exited/success/0, peak1600118784 bytes:166 library and28 integration tests pass
+(194 selected Rust tests), including actual compiler-selected outputs, two
+independently emitted package versions, native test/VCD execution and Cargo's
+reference native build/run. Extra native child results are not double-counted
+as selected Rust tests. Version/mode/feature/flag unit namespaces, source-edit
+stability, Cargo-env isolation, output-name caching and uplift/export path plans
+pass. Fmt/strict relevant-target Clippy and AST update pass (8811 nodes/20024
+edges). Scope estimate38%; native build freshness/ABI identity, shared runner
+execution, actual Siox uplift/export execution and compiled-library metadata/
+linking remain. Source is unchanged after this accepted gate; docs/evidence only.
+
+Separately corrected the local nested-custom-operator fixture's missing explicit
+narrowing conversion, preserving every assertion. Focused compiler gate315265
+exited75 before running behind live peer312147. Exec21181 now waits on that exact
+peer before default/bitpack native verification; no corpus or compiler commit,
+full gate waiver or new push. Main chat has the coverage/LLVM-owner handoff.
