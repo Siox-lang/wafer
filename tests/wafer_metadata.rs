@@ -311,7 +311,7 @@ fn cargo_reference_still_builds_and_runs_through_the_shared_platform_resolver() 
     // The real system linker is discovered through the verification host's PATH.
     #[allow(clippy::disallowed_methods)]
     let path = std::env::var_os("PATH").expect("native build acceptance needs PATH");
-    let built = command(CARGO, root, &["build", "--offline"])
+    let built = command(CARGO, root, &["build", "--offline", "--timings"])
         .env("PATH", path)
         .output()
         .unwrap();
@@ -321,6 +321,10 @@ fn cargo_reference_still_builds_and_runs_through_the_shared_platform_resolver() 
         String::from_utf8_lossy(&built.stdout),
         String::from_utf8_lossy(&built.stderr)
     );
+    let timing =
+        std::fs::read_to_string(root.join("target/cargo-timings/cargo-timing.html")).unwrap();
+    assert!(timing.contains("Cargo Build Timings") && timing.contains("<td>rustc:</td>"));
+    assert!(!timing.contains("Wafer Build Timings") && !timing.contains("<td>sioxc:</td>"));
     let ran = Command::new(root.join(format!(
         "target/debug/controller{}",
         std::env::consts::EXE_SUFFIX

@@ -33,6 +33,13 @@ pub enum CompilerRef<'a> {
 }
 
 impl<'a> CompilerRef<'a> {
+    pub fn rust_workspace_wrapper(&self) -> &'a Option<std::path::PathBuf> {
+        match self {
+            Self::Rust(data) => &data.rustc.workspace_wrapper,
+            Self::Sioxc(_) => &None,
+        }
+    }
+
     pub fn cfg(&self, kind: CompileKind) -> &'a [cargo_platform::Cfg] {
         match self {
             Self::Rust(data) => data.cfg(kind),

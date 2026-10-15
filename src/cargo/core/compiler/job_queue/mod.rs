@@ -112,6 +112,8 @@
 
 mod job;
 mod job_state;
+#[cfg(test)]
+mod tests;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -134,7 +136,8 @@ pub use self::job_state::JobState;
 use super::build_runner::OutputFile;
 use super::custom_build::Severity;
 use super::timings::Timings;
-use super::{BuildContext, BuildPlan, BuildRunner, CompileMode, Unit};
+// Modified for Wafer: both compilers use this same dependency queue and jobserver.
+use super::{BuildContext, BuildPlan, BuildRunner, CompileMode, CompilerRef, Unit, UnitTargetData};
 use crate::core::compiler::descriptive_pkg_name;
 use crate::core::compiler::future_incompat::{
     self, FutureBreakageItem, FutureIncompatReportPackage,
@@ -377,7 +380,7 @@ enum Message {
 }
 
 impl<'gctx> JobQueue<'gctx> {
-    pub fn new(bcx: &BuildContext<'_, 'gctx>) -> JobQueue<'gctx> {
+    pub fn new<T: UnitTargetData>(bcx: &BuildContext<'_, 'gctx, T>) -> JobQueue<'gctx> {
         JobQueue {
             queue: DependencyQueue::new(),
             counts: HashMap::new(),
@@ -385,9 +388,9 @@ impl<'gctx> JobQueue<'gctx> {
         }
     }
 
-    pub fn enqueue(
+    pub fn enqueue<T: UnitTargetData>(
         &mut self,
-        build_runner: &BuildRunner<'_, 'gctx>,
+        build_runner: &BuildRunner<'_, 'gctx, T>,
         unit: &Unit,
         job: Job,
     ) -> CargoResult<()> {
@@ -442,8 +445,8 @@ impl<'gctx> JobQueue<'gctx> {
                 depend_on_deps_of_deps(build_runner, &mut queue_deps, dep.unit.clone());
             }
 
-            fn depend_on_deps_of_deps(
-                build_runner: &BuildRunner<'_, '_>,
+            fn depend_on_deps_of_deps<T: UnitTargetData>(
+                build_runner: &BuildRunner<'_, '_, T>,
                 deps: &mut HashMap<Unit, Artifact>,
                 unit: Unit,
             ) {
@@ -470,11 +473,23 @@ impl<'gctx> JobQueue<'gctx> {
     /// necessary dependencies, in order. Freshness is propagated as far as
     /// possible along each dependency chain.
     #[tracing::instrument(skip_all)]
-    pub fn execute(
+    pub fn execute<T: UnitTargetData>(
         mut self,
-        build_runner: &mut BuildRunner<'_, '_>,
+        build_runner: &mut BuildRunner<'_, '_, T>,
         plan: &mut BuildPlan,
     ) -> CargoResult<()> {
+        anyhow::ensure!(
+            !matches!(
+                build_runner.bcx.target_data.compiler(),
+                CompilerRef::Sioxc(_)
+            ) || build_runner
+                .bcx
+                .build_config
+                .rustfix_diagnostic_server
+                .borrow()
+                .is_none(),
+            "Sioxc does not support Rust fix diagnostic servers"
+        );
         self.queue.queue_finished();
 
         let progress =
@@ -501,7 +516,11 @@ impl<'gctx> JobQueue<'gctx> {
             pending_queue: Vec::new(),
             print: DiagnosticPrinter::new(
                 build_runner.bcx.gctx,
-                &build_runner.bcx.rustc().workspace_wrapper,
+                build_runner
+                    .bcx
+                    .target_data
+                    .compiler()
+                    .rust_workspace_wrapper(),
             ),
             finished: 0,
             per_package_future_incompat_reports: Vec::new(),
@@ -541,9 +560,9 @@ impl<'gctx> JobQueue<'gctx> {
 }
 
 impl<'gctx> DrainState<'gctx> {
-    fn spawn_work_if_possible<'s>(
+    fn spawn_work_if_possible<'s, T: UnitTargetData>(
         &mut self,
-        build_runner: &mut BuildRunner<'_, '_>,
+        build_runner: &mut BuildRunner<'_, '_, T>,
         jobserver_helper: &HelperThread,
         scope: &'s Scope<'s, '_>,
     ) -> CargoResult<()> {
@@ -597,9 +616,9 @@ impl<'gctx> DrainState<'gctx> {
         self.active.len() < self.tokens.len() + 1
     }
 
-    fn handle_event(
+    fn handle_event<T: UnitTargetData>(
         &mut self,
-        build_runner: &mut BuildRunner<'_, '_>,
+        build_runner: &mut BuildRunner<'_, '_, T>,
         plan: &mut BuildPlan,
         event: Message,
     ) -> Result<(), ErrorToHandle> {
@@ -666,7 +685,11 @@ impl<'gctx> DrainState<'gctx> {
                         self.report_warning_count(
                             build_runner,
                             id,
-                            &build_runner.bcx.rustc().workspace_wrapper,
+                            build_runner
+                                .bcx
+                                .target_data
+                                .compiler()
+                                .rust_workspace_wrapper(),
                         );
                         self.active.remove(&id).unwrap()
                     }
@@ -749,9 +772,9 @@ impl<'gctx> DrainState<'gctx> {
     ///
     /// This returns an Option to prevent the use of `?` on `Result` types
     /// because it is important for the loop to carefully handle errors.
-    fn drain_the_queue<'s>(
+    fn drain_the_queue<'s, T: UnitTargetData>(
         mut self,
-        build_runner: &mut BuildRunner<'_, '_>,
+        build_runner: &mut BuildRunner<'_, '_, T>,
         plan: &mut BuildPlan,
         scope: &'s Scope<'s, '_>,
         jobserver_helper: &HelperThread,
@@ -937,11 +960,11 @@ impl<'gctx> DrainState<'gctx> {
     ///
     /// Fresh jobs block until finished (which should be very fast!), Dirty
     /// jobs will spawn a thread in the background and return immediately.
-    fn run<'s>(
+    fn run<'s, T: UnitTargetData>(
         &mut self,
         unit: &Unit,
         job: Job,
-        build_runner: &BuildRunner<'_, '_>,
+        build_runner: &BuildRunner<'_, '_, T>,
         scope: &'s Scope<'s, '_>,
     ) {
         let id = JobId(self.next_id);
@@ -974,10 +997,10 @@ impl<'gctx> DrainState<'gctx> {
         }
     }
 
-    fn emit_log_messages(
+    fn emit_log_messages<T: UnitTargetData>(
         &self,
         unit: &Unit,
-        build_runner: &mut BuildRunner<'_, '_>,
+        build_runner: &mut BuildRunner<'_, '_, T>,
         show_warnings: bool,
     ) -> CargoResult<()> {
         let outputs = build_runner.build_script_outputs.lock().unwrap();
@@ -1035,9 +1058,9 @@ impl<'gctx> DrainState<'gctx> {
     }
 
     /// Displays a final report of the warnings emitted by a particular job.
-    fn report_warning_count(
+    fn report_warning_count<T: UnitTargetData>(
         &mut self,
-        runner: &mut BuildRunner<'_, '_>,
+        runner: &mut BuildRunner<'_, '_, T>,
         id: JobId,
         rustc_workspace_wrapper: &Option<PathBuf>,
     ) {
@@ -1067,7 +1090,7 @@ impl<'gctx> DrainState<'gctx> {
             }
         }
         // Only show the `cargo fix` message if its a local `Unit`
-        if unit.is_local() {
+        if unit.is_local() && matches!(runner.bcx.target_data.compiler(), CompilerRef::Rust(_)) {
             // Do not show this if there are any errors or no fixable warnings
             if let FixableWarnings::Positive(fixable) = count.fixable {
                 // `cargo fix` doesn't have an option for custom builds
@@ -1111,12 +1134,12 @@ impl<'gctx> DrainState<'gctx> {
         let _ = gctx.shell().warn(message);
     }
 
-    fn finish(
+    fn finish<T: UnitTargetData>(
         &mut self,
         id: JobId,
         unit: &Unit,
         artifact: Artifact,
-        build_runner: &mut BuildRunner<'_, '_>,
+        build_runner: &mut BuildRunner<'_, '_, T>,
     ) -> CargoResult<()> {
         if unit.mode.is_run_custom_build() {
             self.emit_log_messages(
@@ -1197,12 +1220,15 @@ impl<'gctx> DrainState<'gctx> {
         Ok(())
     }
 
-    fn back_compat_notice(
+    fn back_compat_notice<T: UnitTargetData>(
         &self,
-        build_runner: &BuildRunner<'_, '_>,
+        build_runner: &BuildRunner<'_, '_, T>,
         unit: &Unit,
     ) -> CargoResult<()> {
-        if unit.pkg.name() != "diesel"
+        if !matches!(
+            build_runner.bcx.target_data.compiler(),
+            CompilerRef::Rust(_)
+        ) || unit.pkg.name() != "diesel"
             || unit.pkg.version() >= &Version::new(1, 4, 8)
             || build_runner.bcx.ws.resolve_behavior() == ResolveBehavior::V1
             || !unit.pkg.package_id().source_id().is_registry()

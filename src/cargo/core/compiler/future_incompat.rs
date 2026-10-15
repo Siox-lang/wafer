@@ -33,7 +33,8 @@
 //! [1]: https://doc.rust-lang.org/nightly/cargo/reference/future-incompat-report.html
 //! [2]: https://github.com/rust-lang/rust/blob/9bb6e60d1f1360234aae90c97964c0fa5524f141/compiler/rustc_errors/src/json.rs#L312-L315
 
-use crate::core::compiler::BuildContext;
+// Modified for Wafer: Rust future-incompat reports do not describe native Siox jobs.
+use crate::core::compiler::{BuildContext, CompilerRef, UnitTargetData};
 use crate::core::{Dependency, PackageId, Workspace};
 use crate::sources::SourceConfigMap;
 use crate::sources::source::QueryKind;
@@ -373,10 +374,13 @@ fn get_updates(ws: &Workspace<'_>, package_ids: &BTreeSet<PackageId>) -> Option<
 /// Writes a future-incompat report to disk, using the per-package
 /// reports gathered during the build. If requested by the user,
 /// a message is also displayed in the build output.
-pub fn save_and_display_report(
-    bcx: &BuildContext<'_, '_>,
+pub fn save_and_display_report<T: UnitTargetData>(
+    bcx: &BuildContext<'_, '_, T>,
     per_package_future_incompat_reports: &[FutureIncompatReportPackage],
 ) {
+    if matches!(bcx.target_data.compiler(), CompilerRef::Sioxc(_)) {
+        return;
+    }
     let should_display_message = match bcx.gctx.future_incompat_config() {
         Ok(config) => config.should_display_message(),
         Err(e) => {

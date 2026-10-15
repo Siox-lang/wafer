@@ -2,7 +2,8 @@
 
 use crate::core::compiler::build_runner::BuildRunner;
 use crate::core::compiler::unit::Unit;
-use crate::core::compiler::{BuildContext, CompileKind};
+// Modified for Wafer: the shared queue's optional-failure policy remains Rust-only.
+use crate::core::compiler::{BuildContext, CompileKind, CompilerRef, UnitTargetData};
 use crate::sources::CRATES_IO_REGISTRY;
 use crate::util::errors::{CargoResult, internal};
 use cargo_util::ProcessBuilder;
@@ -286,7 +287,7 @@ impl RustdocScrapeExamples {
     }
 }
 
-impl BuildContext<'_, '_> {
+impl<T: UnitTargetData> BuildContext<'_, '_, T> {
     /// Returns the set of [`Docscrape`] units that have a direct dependency on `unit`.
     ///
     /// [`RunCustomBuild`] units are excluded because we allow failures
@@ -310,6 +311,9 @@ impl BuildContext<'_, '_> {
     /// Returns true if this unit is needed for doing doc-scraping and is also
     /// allowed to fail without killing the build.
     pub fn unit_can_fail_for_docscraping(&self, unit: &Unit) -> bool {
+        if matches!(self.target_data.compiler(), CompilerRef::Sioxc(_)) {
+            return false;
+        }
         // If the unit is not a Docscrape unit, e.g. a Lib target that is
         // checked to scrape an Example target, then we need to get the doc-scrape-examples
         // configuration for the reverse-dependent Example target.

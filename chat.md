@@ -647,3 +647,60 @@ native queue execution, validated arguments/artifact collection, execution input
 and external tool identity, compiled-library metadata/linking and test batching
 remain. No LLVM edits, compiler gate waiver, new dependencies or push. The
 compiler narrowing root-cause handoff is logged separately in main chat.md.
+
+## 2026-10-16 — Codex: one scheduler for native jobs
+
+Own the existing job_queue, timings, compiler-fact wrapper accessor and Rust-only
+future-incompat guard. Make Cargo's same enqueue/drain/jobserver/error paths
+accept native runner state and actual Sioxc jobs; no second queue or scheduler.
+Exercise actual object/test jobs, sidecar collection, fresh fingerprint jobs,
+dependency ordering and failed-prerequisite behavior with bounded concurrency.
+Native timing reports must show actual Sioxc facts; Rust fix/legacy notices and
+wrappers remain Rust-only. Normal Siox CLI builds and compiled-library imports
+remain gated until production argument/artifact/input integration is ready.
+Previous d301f2e5b milestone is verified and committed locally, not pushed.
+
+Queue gate429921 finished101, peak897970176 bytes: the common queue's existing
+doc-scrape failure policy was still on a Rust-specialized BuildContext impl.
+Own that small graph-policy impl in rustdoc.rs as well: generalize its context
+parameter, preserving Rust behavior and explicitly never allowing native failures
+to be swallowed as optional Rustdoc work. No tests passed in this compile-failed
+gate; rerun the complete gate after the shared policy fix.
+
+Gate431577 finished101, peak802320384 bytes: Rust correctly rejected the
+test rendezvous's unnamed mutex guard. Bind the guard explicitly until the
+timeout check finishes; no production scheduler change. Rerun the same full gate.
+
+Gate432328 finished101, peak1138167808 bytes:170 library tests passed, including
+native failure/keep-going/blocked-fingerprint checks. Positive queue acceptance
+reached native execution but its test constructed an unprepared Compilation for
+running the resulting test binary; target_process requires prepared layout maps.
+Use the existing shared runner dry-run to obtain that prepared result instead.
+Do not invent root/dependency paths in the test or change production constructors.
+Both job-count cases and remaining integration/Clippy gates still need verification.
+
+Queue gate435878 finished exited/success/0, peak1429635072 bytes:171 library
+plus29 integration tests pass (200 selected Rust tests). Actual one/two-token
+native scheduling, ordering, fresh skips without output rewrites, missing-child
+rebuild, keep-going/failure blocking, native test/VCD and Sioxc timing reports
+pass. Fmt, strict relevant-target Clippy and AST update8837/20159 pass.
+Before committing, extend the existing Cargo reference native-build test to
+request --timings and assert its original Cargo/Rust report branding/version
+label, so both sides of the modified shared renderer are exercised. Own this
+small tests/wafer_metadata.rs addition; rerun the entire gate for the final state.
+
+Final queue gate siox-job-3000-1792102441380878828-441711.service finished
+exited/success/0, peak190816256 bytes with warm build caches. All200 selected
+Rust tests pass (171 library plus29 integrations; native child results are not
+double-counted). Both native scheduling regressions and the real reference Cargo
+--timings build/run pass. Fmt and strict relevant-target Clippy pass; AST update
+finds no further graph changes after8837 nodes/20159 edges. Earlier cold compile
+gate435878 peaked1429635072 bytes; no resource limit was raised or bypassed.
+
+Source is unchanged after this accepted final gate; only docs/evidence follow.
+Scope estimate46% of Cargo-based integration. This is the same production queue
+accepting native work, exercised internally with real commands/sidecars/fingerprint
+jobs; not a second scheduler, reusable-library linking or enabled CLI builds.
+Production native command validation/work preparation/artifact collection, full
+execution-input/tool identity, compiled-library metadata/linking and test batching
+remain. No compiler/LLVM edits, new dependencies, compiler gate waiver or push.

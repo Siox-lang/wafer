@@ -5,7 +5,10 @@
 use super::{CompileMode, Unit};
 use crate::core::PackageId;
 use crate::core::compiler::job_queue::JobId;
-use crate::core::compiler::{BuildContext, BuildRunner, TimingOutput};
+// Modified for Wafer: shared timings display the selected compiler's actual facts.
+use crate::core::compiler::{
+    BuildContext, BuildRunner, CompileKind, CompilerRef, TimingOutput, UnitTargetData,
+};
 use crate::util::cpu::State;
 use crate::util::machine_message::{self, Message};
 use crate::util::style;
@@ -96,7 +99,10 @@ struct Concurrency {
 }
 
 impl<'gctx> Timings<'gctx> {
-    pub fn new(bcx: &BuildContext<'_, 'gctx>, root_units: &[Unit]) -> Timings<'gctx> {
+    pub fn new<T: UnitTargetData>(
+        bcx: &BuildContext<'_, 'gctx, T>,
+        root_units: &[Unit],
+    ) -> Timings<'gctx> {
         let has_report = |what| bcx.build_config.timing_outputs.contains(&what);
         let report_html = has_report(TimingOutput::Html);
         let report_json = has_report(TimingOutput::Json);
@@ -285,9 +291,9 @@ impl<'gctx> Timings<'gctx> {
     }
 
     /// Call this when all units are finished.
-    pub fn finished(
+    pub fn finished<T: UnitTargetData>(
         &mut self,
-        build_runner: &BuildRunner<'_, '_>,
+        build_runner: &BuildRunner<'_, '_, T>,
         error: &Option<anyhow::Error>,
     ) -> CargoResult<()> {
         if !self.enabled {
@@ -304,23 +310,39 @@ impl<'gctx> Timings<'gctx> {
     }
 
     /// Save HTML report to disk.
-    fn report_html(
+    fn report_html<T: UnitTargetData>(
         &self,
-        build_runner: &BuildRunner<'_, '_>,
+        build_runner: &BuildRunner<'_, '_, T>,
         error: &Option<anyhow::Error>,
     ) -> CargoResult<()> {
         let duration = self.start.elapsed().as_secs_f64();
         let timestamp = self.start_str.replace(&['-', ':'][..], "");
-        let timings_path = build_runner.files().host_root().join("cargo-timings");
+        let tool = self.gctx.tool_name();
+        let timings_path = build_runner
+            .files()
+            .host_root()
+            .join(format!("{tool}-timings"));
         paths::create_dir_all(&timings_path)?;
-        let filename = timings_path.join(format!("cargo-timing-{}.html", timestamp));
+        let filename = timings_path.join(format!("{tool}-timing-{timestamp}.html"));
         let mut f = BufWriter::new(paths::create(&filename)?);
         let roots: Vec<&str> = self
             .root_targets
             .iter()
             .map(|(name, _targets)| name.as_str())
             .collect();
-        f.write_all(HTML_TMPL.replace("{ROOTS}", &roots.join(", ")).as_bytes())?;
+        f.write_all(
+            HTML_TMPL
+                .replace("{ROOTS}", &roots.join(", "))
+                .replace(
+                    "{TOOL}",
+                    if self.gctx.is_wafer() {
+                        "Wafer"
+                    } else {
+                        "Cargo"
+                    },
+                )
+                .as_bytes(),
+        )?;
         self.write_summary_table(&mut f, duration, build_runner.bcx, error)?;
         f.write_all(HTML_CANVAS.as_bytes())?;
         self.write_unit_table(&mut f)?;
@@ -343,7 +365,7 @@ impl<'gctx> Timings<'gctx> {
         )?;
         drop(f);
 
-        let unstamped_filename = timings_path.join("cargo-timing.html");
+        let unstamped_filename = timings_path.join(format!("{tool}-timing.html"));
         paths::link_or_copy(&filename, &unstamped_filename)?;
 
         let mut shell = self.gctx.shell();
@@ -356,11 +378,11 @@ impl<'gctx> Timings<'gctx> {
     }
 
     /// Render the summary table.
-    fn write_summary_table(
+    fn write_summary_table<T: UnitTargetData>(
         &self,
         f: &mut impl Write,
         duration: f64,
-        bcx: &BuildContext<'_, '_>,
+        bcx: &BuildContext<'_, '_, T>,
         error: &Option<anyhow::Error>,
     ) -> CargoResult<()> {
         let targets: Vec<String> = self
@@ -379,7 +401,11 @@ impl<'gctx> Timings<'gctx> {
         let num_cpus = available_parallelism()
             .map(|x| x.get().to_string())
             .unwrap_or_else(|_| "n/a".into());
-        let rustc_info = render_rustc_info(bcx);
+        let compiler_info = render_compiler_info(bcx);
+        let compiler_label = match bcx.target_data.compiler() {
+            CompilerRef::Rust(_) => "rustc",
+            CompilerRef::Sioxc(_) => "sioxc",
+        };
         let error_msg = match error {
             Some(e) => format!(r#"<tr><td class="error-text">Error:</td><td>{e}</td></tr>"#),
             None => "".to_string(),
@@ -413,7 +439,7 @@ impl<'gctx> Timings<'gctx> {
     <td>Total time:</td><td>{}</td>
   </tr>
   <tr>
-    <td>rustc:</td><td>{}</td>
+    <td>{}:</td><td>{}</td>
   </tr>
 {}
 </table>
@@ -428,7 +454,8 @@ impl<'gctx> Timings<'gctx> {
             num_cpus,
             self.start_str,
             total_time,
-            rustc_info,
+            compiler_label,
+            compiler_info,
             error_msg,
         )?;
         Ok(())
@@ -580,24 +607,26 @@ impl UnitTime {
     }
 }
 
-fn render_rustc_info(bcx: &BuildContext<'_, '_>) -> String {
-    let version = bcx
-        .rustc()
-        .verbose_version
-        .lines()
-        .next()
-        .expect("rustc version");
+fn render_compiler_info<T: UnitTargetData>(bcx: &BuildContext<'_, '_, T>) -> String {
+    let verbose_version = match bcx.target_data.compiler() {
+        CompilerRef::Rust(data) => &data.rustc.verbose_version,
+        CompilerRef::Sioxc(compiler) => &compiler.verbose_version,
+    };
+    let version = verbose_version.lines().next().expect("compiler version");
     let requested_target = bcx
         .build_config
         .requested_kinds
         .iter()
-        .map(|kind| bcx.target_data.short_name(kind))
+        .map(|kind| match kind {
+            CompileKind::Host => bcx.host_triple().to_string(),
+            CompileKind::Target(target) => target.short_name().to_owned(),
+        })
         .collect::<Vec<_>>()
         .join(", ");
     format!(
         "{}<br>Host: {}<br>Target: {}",
         version,
-        bcx.rustc().host,
+        bcx.host_triple(),
         requested_target
     )
 }
@@ -605,7 +634,7 @@ fn render_rustc_info(bcx: &BuildContext<'_, '_>) -> String {
 static HTML_TMPL: &str = r#"
 <html>
 <head>
-  <title>Cargo Build Timings — {ROOTS}</title>
+  <title>{TOOL} Build Timings — {ROOTS}</title>
   <meta charset="utf-8">
 <style type="text/css">
 :root {
@@ -768,7 +797,7 @@ h1 {
 </head>
 <body>
 
-<h1>Cargo Build Timings</h1>
+<h1>{TOOL} Build Timings</h1>
 See <a href="https://doc.rust-lang.org/nightly/cargo/reference/timings.html">Documentation</a>
 "#;
 

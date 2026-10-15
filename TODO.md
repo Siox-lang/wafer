@@ -28,11 +28,13 @@
   verify identical versions/sizes/mtimes cannot conceal changed executable bytes.
 - [x] Share persisted fingerprint comparison and fresh/dirty job preparation for native
   units; verify real inputs, missing/corrupt sidecars and interrupted-job invalidation.
+- [x] Share the actual queue/jobserver/drain paths for native work; verify one/two-job
+  limits, ordering, fresh skips, rebuilds, failures/keep-going and both compilers' timings.
 - Adapt external commands and remaining compiler/registry environment contracts.
 - Integrate dependency-sidecar collection and build-unit fingerprints with Siox execution.
   Track execution environment/selected std and external tools/libraries, not only
   the already captured compiler binary, before enabling native build-cache reuse.
-- Integrate Sioxc execution with the shared runner; wire actual compiler artifact
+- Integrate native work preparation into the high-level shared runner; wire actual compiler artifact
   names and selected Sioxc flags without Rust crate formats. Validate build-owned
   output/query options before constructing an executing command.
 - Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
@@ -48,7 +50,7 @@ Copying upstream functionality does not prove it works with Siox.
 
 Verified adapter: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions for both tools, two actual Sioxc toolchain integrations,
-169 library tests (143 upstream, native selection/planning/dep-info/process/artifacts/runner/fingerprints explicitly enabled), formatting
+171 library tests (143 upstream, native selection/planning/dep-info/process/artifacts/runner/fingerprints/scheduling explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
 Cargo-driven Siox compilation and compiled dependency libraries remain
 unsupported, not silently delegated to Rust. Compiler query
