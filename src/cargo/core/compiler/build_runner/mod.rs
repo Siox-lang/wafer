@@ -1,4 +1,5 @@
 //! [`BuildRunner`] is the mutable state used during the build process.
+// Modified for Wafer: shared runner state/preparation, with Rust execution kept specialized.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -22,12 +23,16 @@ use super::layout::Layout;
 use super::lto::Lto;
 use super::unit_graph::UnitDep;
 use super::{
-    BuildContext, Compilation, CompileKind, CompileMode, Executor, FileFlavor, RustDocFingerprint,
+    BuildContext, Compilation, CompileKind, CompileMode, CompilerRef, Executor, FileFlavor,
+    RustDocFingerprint, RustcTargetData, UnitTargetData,
 };
 
 mod compilation_files;
 use self::compilation_files::CompilationFiles;
 pub use self::compilation_files::{Metadata, OutputFile, UnitHash};
+
+#[cfg(test)]
+mod tests;
 
 /// Collection of all the stuff that is needed to perform a build.
 ///
@@ -35,9 +40,9 @@ pub use self::compilation_files::{Metadata, OutputFile, UnitHash};
 /// throughout the entire build process. Everything is coordinated through this.
 ///
 /// [`BuildContext`]: crate::core::compiler::BuildContext
-pub struct BuildRunner<'a, 'gctx> {
+pub struct BuildRunner<'a, 'gctx, T = RustcTargetData<'gctx>> {
     /// Mostly static information about the build task.
-    pub bcx: &'a BuildContext<'a, 'gctx>,
+    pub bcx: &'a BuildContext<'a, 'gctx, T>,
     /// A large collection of information about the result of the entire compilation.
     pub compilation: Compilation<'gctx>,
     /// Output from build scripts, updated after each build script runs.
@@ -89,8 +94,13 @@ pub struct BuildRunner<'a, 'gctx> {
     pub failed_scrape_units: Arc<Mutex<HashSet<UnitHash>>>,
 }
 
-impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
-    pub fn new(bcx: &'a BuildContext<'a, 'gctx>) -> CargoResult<Self> {
+impl<'a, 'gctx, T: UnitTargetData> BuildRunner<'a, 'gctx, T> {
+    pub fn new(bcx: &'a BuildContext<'a, 'gctx, T>) -> CargoResult<Self> {
+        if matches!(bcx.target_data.compiler(), CompilerRef::Sioxc(_)) {
+            for unit in bcx.unit_graph.keys() {
+                CompilationFiles::validate_unit(bcx, unit)?;
+            }
+        }
         // Load up the jobserver that we'll use to manage our parallelism. This
         // is the same as the GNU make implementation of a jobserver, and
         // intentionally so! It's hoped that we can interact with GNU make and
@@ -138,18 +148,19 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
             .bcx
             .gctx
             .acquire_package_cache_lock(CacheLockMode::Shared)?;
-        self.lto = super::lto::generate(self.bcx)?;
         self.prepare_units()?;
         self.prepare()?;
         self.check_collisions()?;
 
         for unit in &self.bcx.roots {
-            self.collect_tests_and_executables(unit)?;
+            self.collect_outputs(unit)?;
         }
 
         Ok(self.compilation)
     }
+}
 
+impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
     /// Starts compilation, waits for it to finish, and returns information
     /// about the result of compilation.
     ///
@@ -168,7 +179,6 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         let mut queue = JobQueue::new(self.bcx);
         let mut plan = BuildPlan::new();
         let build_plan = self.bcx.build_config.build_plan;
-        self.lto = super::lto::generate(self.bcx)?;
         self.prepare_units()?;
         self.prepare()?;
         custom_build::build_map(&mut self)?;
@@ -238,7 +248,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
         // Collect the result of the build into `self.compilation`.
         for unit in &self.bcx.roots {
-            self.collect_tests_and_executables(unit)?;
+            self.collect_outputs(unit)?;
 
             // Collect information for `rustdoc --test`.
             if unit.mode.is_doc_test() {
@@ -310,8 +320,10 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         }
         Ok(self.compilation)
     }
+}
 
-    fn collect_tests_and_executables(&mut self, unit: &Unit) -> CargoResult<()> {
+impl<'a, 'gctx, T: UnitTargetData> BuildRunner<'a, 'gctx, T> {
+    fn collect_outputs(&mut self, unit: &Unit) -> CargoResult<()> {
         for output in self.outputs(unit)?.iter() {
             if matches!(
                 output.flavor,
@@ -325,6 +337,10 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
             if unit.mode == CompileMode::Test {
                 self.compilation
                     .tests
+                    .push(self.unit_output(unit, &output.path));
+            } else if matches!(self.bcx.target_data.compiler(), CompilerRef::Sioxc(_)) {
+                self.compilation
+                    .objects
                     .push(self.unit_output(unit, &output.path));
             } else if unit.target.is_executable() {
                 self.compilation
@@ -343,6 +359,11 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
     /// Returns the executable for the specified unit (if any).
     pub fn get_executable(&mut self, unit: &Unit) -> CargoResult<Option<PathBuf>> {
+        if matches!(self.bcx.target_data.compiler(), CompilerRef::Sioxc(_))
+            && unit.mode != CompileMode::Test
+        {
+            return Ok(None);
+        }
         let is_binary = unit.target.is_executable();
         let is_test = unit.mode.is_any_test();
         if !unit.mode.generates_executable() || !(is_binary || is_test) {
@@ -357,6 +378,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
     #[tracing::instrument(skip_all)]
     pub fn prepare_units(&mut self) -> CargoResult<()> {
+        self.lto = super::lto::generate(self.bcx)?;
         let dest = self.bcx.profiles.get_dir_name();
         let host_layout = Layout::new(self.bcx.ws, None, &dest)?;
         let mut targets = HashMap::new();
@@ -555,7 +577,10 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
                     suggestion,
                     crate::version(),
                     self.bcx.host_triple(),
-                    self.bcx.target_data.short_name(&unit.kind),
+                    match &unit.kind {
+                        CompileKind::Host => self.bcx.host_triple().to_string(),
+                        CompileKind::Target(target) => target.short_name().to_owned(),
+                    },
                     unit,
                     other_unit))
             }
@@ -660,7 +685,8 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
     pub fn only_requires_rmeta(&self, parent: &Unit, dep: &Unit) -> bool {
         // We're only a candidate for requiring an `rmeta` file if we
         // ourselves are building an rlib,
-        !parent.requires_upstream_objects()
+        matches!(self.bcx.target_data.compiler(), CompilerRef::Rust(_))
+            && !parent.requires_upstream_objects()
             && parent.mode == CompileMode::Build
             // Our dependency must also be built as an rlib, otherwise the
             // object code must be useful in some fashion

@@ -567,3 +567,31 @@ narrowing conversion, preserving every assertion. Focused compiler gate315265
 exited75 before running behind live peer312147. Exec21181 now waits on that exact
 peer before default/bitpack native verification; no corpus or compiler commit,
 full gate waiver or new push. Main chat has the coverage/LLVM-owner handoff.
+
+## 2026-10-15 — Codex: one shared runner state/preparation path
+
+Own BuildRunner's compiler-neutral state/preparation methods, Compilation's
+native-object results, shared LTO planning guards and artifact preflight/tests.
+Keep the existing Rust compile method specialized until native work/fingerprints
+are adapted; do not add another runner, scheduler or CLI execution shortcut.
+Sioxc objects must not be advertised as runnable binaries or Rust rmeta. Reuse
+the same jobserver, layout preparation, output caching and collision checks;
+reject unsupported Sioxc output/LTO requests before creating build layouts.
+The separate corrected corpus fixture still fails on outer result-width
+propagation (gate318736); keep compiler/corpus work local and LLVM ownership
+unchanged. No verification is currently live in either owned worktree.
+
+Shared runner gate siox-job-3000-1792100197496915919-336637.service finished
+exited/success/0, peak1449840640 bytes:168 library plus28 integration tests pass
+(196 selected Rust tests), including actual native object/test/VCD output through
+shared preparation, invalid-source dry-run safety and Cargo reference build/run.
+Fmt, strict relevant-target Clippy and AST update pass (8821 nodes/20058 edges).
+The compile method remains Rust-specialized; no CLI builds, native scheduler
+execution, freshness cache hits or reusable-library linking are claimed.
+Source is unchanged after the accepted gate; documentation/evidence only.
+
+2026-10-15 — Codex: user requested another push. Commit this verified shared
+runner milestone and publish it with the preceding artifact-layout commit to
+origin/feat/siox-adapter, without changing main. Completion estimate40% of the
+Cargo-based Wafer integration; compiler/corpus WIP stays local under its separate
+green-gate requirement. Preserve all unrelated worktrees and uncommitted changes.

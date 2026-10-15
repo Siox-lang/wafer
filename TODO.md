@@ -22,6 +22,8 @@
   verify actual Sioxc object/test/VCD execution, package variables and Rust-only guards.
 - [x] Share native artifact names/unit namespaces/output-name caching and planned
   uplift/export paths through `CompilationFiles`; verify real object/test outputs.
+- [x] Share runner state, jobserver/layout preparation and dry-run output collection;
+  distinguish native objects from executables and reject unsupported artifacts/LTO early.
 - Adapt external commands and remaining compiler/registry environment contracts.
 - Integrate dependency-sidecar collection and build-unit fingerprints with Siox execution.
   Include the actual compiler/ABI-feature identity, not just its semantic version:
@@ -42,7 +44,7 @@ Copying upstream functionality does not prove it works with Siox.
 
 Verified adapter: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions for both tools, one actual Sioxc probe integration,
-166 library tests (143 upstream, native selection/planning/dep-info/process/artifacts explicitly enabled), formatting
+168 library tests (143 upstream, native selection/planning/dep-info/process/artifacts/runner explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
 Cargo-driven Siox compilation and compiled dependency libraries remain
 unsupported, not silently delegated to Rust. Compiler query

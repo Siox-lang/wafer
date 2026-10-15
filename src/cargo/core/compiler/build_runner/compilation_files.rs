@@ -446,14 +446,11 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
         Some(uplift_path)
     }
 
-    /// Calculates the filenames that the given unit will generate.
-    /// Should use [`CompilationFiles::outputs`] instead
-    /// as it caches the result of this function.
-    fn calc_outputs<T: UnitTargetData>(
-        &self,
+    /// Validate compiler-owned output capabilities before preparing filesystem layouts.
+    pub(super) fn validate_unit<T: UnitTargetData>(
+        bcx: &BuildContext<'_, '_, T>,
         unit: &Unit,
-        bcx: &BuildContext<'a, 'gctx, T>,
-    ) -> CargoResult<Arc<Vec<OutputFile>>> {
+    ) -> CargoResult<()> {
         if matches!(bcx.target_data.compiler(), CompilerRef::Sioxc(_)) {
             anyhow::ensure!(
                 matches!(unit.mode, CompileMode::Build | CompileMode::Test)
@@ -468,6 +465,18 @@ impl<'a, 'gctx: 'a> CompilationFiles<'a, 'gctx> {
                 "Sioxc artifact layout only supports native object and test outputs; Rust crate formats, check/doc/build-script/SBOM artifacts are unsupported"
             );
         }
+        Ok(())
+    }
+
+    /// Calculates the filenames that the given unit will generate.
+    /// Should use [`CompilationFiles::outputs`] instead
+    /// as it caches the result of this function.
+    fn calc_outputs<T: UnitTargetData>(
+        &self,
+        unit: &Unit,
+        bcx: &BuildContext<'a, 'gctx, T>,
+    ) -> CargoResult<Arc<Vec<OutputFile>>> {
+        Self::validate_unit(bcx, unit)?;
         let ret = match unit.mode {
             _ if unit.skip_non_compile_time_dep => {
                 // This skips compilations so no outputs

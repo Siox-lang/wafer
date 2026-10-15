@@ -70,6 +70,8 @@ pub struct UnitOutput {
 
 /// A structure returning the result of a compilation.
 pub struct Compilation<'gctx> {
+    /// Native design objects, distinct from runnable executables or reusable libraries.
+    pub objects: Vec<UnitOutput>,
     /// An array of all tests created during this compilation.
     pub tests: Vec<UnitOutput>,
 
@@ -152,6 +154,7 @@ impl<'gctx> Compilation<'gctx> {
             };
         let primary_rustc_process = bcx.build_config.primary_unit_rustc.clone();
         Ok(Compilation {
+            objects: Vec::new(),
             native_dirs: BTreeSet::new(),
             root_output: HashMap::new(),
             deps_output: HashMap::new(),

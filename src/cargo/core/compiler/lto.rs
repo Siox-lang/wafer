@@ -1,4 +1,7 @@
-use crate::core::compiler::{BuildContext, CompileMode, CrateType, Unit};
+// Modified for Wafer: native object planning must not request Rust bitcode formats.
+use crate::core::compiler::{
+    BuildContext, CompileMode, CompilerRef, CrateType, Unit, UnitTargetData,
+};
 use crate::core::profiles;
 use crate::util::interning::InternedString;
 
@@ -42,7 +45,25 @@ pub enum Lto {
     OnlyObject,
 }
 
-pub fn generate(bcx: &BuildContext<'_, '_>) -> CargoResult<HashMap<Unit, Lto>> {
+pub fn generate<T: UnitTargetData>(
+    bcx: &BuildContext<'_, '_, T>,
+) -> CargoResult<HashMap<Unit, Lto>> {
+    if matches!(bcx.target_data.compiler(), CompilerRef::Sioxc(_)) {
+        return bcx
+            .unit_graph
+            .keys()
+            .map(|unit| {
+                let lto = match unit.profile.lto {
+                    profiles::Lto::Bool(false) => Lto::OnlyObject,
+                    profiles::Lto::Off => Lto::Off,
+                    _ => anyhow::bail!(
+                        "Sioxc does not support Cargo's Rust LTO/bitcode profile options"
+                    ),
+                };
+                Ok((unit.clone(), lto))
+            })
+            .collect();
+    }
     let mut map = HashMap::new();
     for unit in bcx.roots.iter() {
         let root_lto = match unit.profile.lto {
@@ -88,8 +109,8 @@ fn lto_when_needs_object(crate_types: &[CrateType]) -> Lto {
     }
 }
 
-fn calculate(
-    bcx: &BuildContext<'_, '_>,
+fn calculate<T: UnitTargetData>(
+    bcx: &BuildContext<'_, '_, T>,
     map: &mut HashMap<Unit, Lto>,
     unit: &Unit,
     parent_lto: Lto,

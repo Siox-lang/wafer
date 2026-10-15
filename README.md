@@ -73,7 +73,8 @@ planning implementation serves both compilers; `create_sioxc_bcx` exposes the
 Sioxc context and the explicit unit-graph CLI prints that plan. Native acceptance
 covers versioned library units, features, profiles and target filters through
 Cargo's existing planner and host-unit deduplication. Rust std/MSRV handling
-remains Rust-specific, and Sioxc contexts cannot enter the Rust-only runner.
+remains Rust-specific. Runner state and preparation accept Sioxc contexts, while
+the actual compile/scheduler entry point remains Rust-only.
 Configured Sioxc flags use Cargo's existing precedence: `WAFER_ENCODED_SIOXCFLAGS`
 (unit-separator encoded), then `SIOXCFLAGS` (space separated), then the native
 `target.<host>.sioxcflags` plus matching `target.'cfg(...)'.sioxcflags`, then
@@ -94,15 +95,18 @@ The shared `Compilation` setup can prepare either compiler's process and native
 target commands. Sioxc processes receive `WAFER_*` package/unit variables and
 the active `WAFER` executable; Cargo retains its `CARGO_*` environment. Rust
 wrappers, sysroot search paths and documentation commands stay Rust-only.
-Callers still prepare output layouts and validated invocation arguments. This
+The shared `BuildRunner` also prepares Sioxc jobservers, layouts, output caches
+and collision checks. Its dry-run collects native design objects separately
+from executable tests; unsupported artifacts and Rust LTO options fail before
+layout creation. Callers still supply validated invocation arguments. This
 does not yet connect Siox units to Cargo's scheduler or enable CLI builds.
 
 The artifact adapter also uses Cargo's `CompilationFiles` hashes,
 output-name cache and planned uplift/export paths, probing Sioxc's actual native object/test
 filenames instead of inventing Rust library formats. Its package/version/mode/
 feature/flag namespaces are not a native freshness or compiled-library ABI key.
-Exact compiler-build identity, reusable library metadata and shared runner
-integration remain required. Native acceptance verifies actual outputs and unit
+Exact compiler-build identity, reusable library metadata and shared scheduler
+execution remain required. Native acceptance verifies actual outputs and unit
 namespace separation; it does not link/import the independently emitted objects
 as reusable compiled libraries or decide build freshness.
 
@@ -120,11 +124,13 @@ the actual Siox std checkout:
 `cargo test -p cargo --lib fingerprint::dep_info::tests -- --ignored`.
 Native shared-process acceptance uses the same compiler/std variables:
 `cargo test -p cargo --lib compiler::compilation::tests -- --ignored`.
+Shared runner preparation/dry-run acceptance uses those same variables:
+`cargo test -p cargo --lib compiler::build_runner::tests -- --ignored`.
 
 Adapter validation: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions covering both tools, one actual Sioxc probe integration
-test and 166 library tests (including 143 upstream Cargo tests and the explicitly
-enabled native compiler-selection, shared-planning, process-setup and artifact tests) pass, along with
+test and 168 library tests (including 143 upstream Cargo tests and the explicitly
+enabled native compiler-selection, shared-planning, process-setup, artifact and runner tests) pass, along with
 formatting and strict relevant-target Clippy. Metadata/unit graphs and features match Cargo, Git pins
 are retained, and the reference Cargo binary still builds and runs a native path
 dependency project. This is not Cargo-driven Siox build support. The full
