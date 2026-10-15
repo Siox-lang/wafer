@@ -5,7 +5,8 @@
 - [x] Infer Siox library/test/binary/example/benchmark paths using Cargo's discovery.
 - [x] Isolate Wafer home/project config and typed configuration environment keys.
 - Adapt external commands, lockfiles and remaining compiler/registry environment contracts.
-- Adapt compiler version/capability/target probes to honest sioxc interfaces.
+- Wire Sioxc version/native-target/artifact-name queries into Cargo planning;
+  extend capabilities as the compiler provides compiled-library/dep-info contracts.
 - Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
 - Compile/reuse Siox dependencies with version-isolated identities and metadata.
 - Adapt native test discovery/batching and simulation/structural top selection.
@@ -17,6 +18,8 @@
 This is a new integration effort, not the earlier standalone Wafer's60% estimate.
 Copying upstream functionality does not prove it works with Siox.
 
-Verified bootstrap: 11 executable CLI tests, 145 library tests (143 upstream),
-formatting and strict relevant-target Clippy. Compiler execution and dependency
-resolution remain unsupported, not silently delegated to Rust.
+Verified adapter: 11 executable CLI tests, one actual Sioxc probe integration,
+147 library tests (143 upstream, native selection explicitly enabled), formatting
+and strict relevant-target Clippy. Cargo-driven compilation and dependency
+resolution remain unsupported, not silently delegated to Rust. Compiler query
+changes remain local until its separate full corpus gate is green.

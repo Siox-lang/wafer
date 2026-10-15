@@ -22,6 +22,8 @@ pub use self::progress::{Progress, ProgressStyle};
 pub use self::queue::Queue;
 pub use self::rustc::Rustc;
 pub use self::semver_ext::{OptVersionReq, VersionExt};
+// Modified for Wafer: expose the actual Sioxc toolchain probe, not Rust emulation.
+pub use self::sioxc::Sioxc;
 pub use self::vcs::{FossilRepo, GitRepo, HgRepo, PijulRepo, existing_vcs_repo};
 pub use self::workspace::{
     add_path_args, path_args, print_available_benches, print_available_binaries,
@@ -61,6 +63,7 @@ pub mod restricted_names;
 pub mod rustc;
 mod semver_eval_ext;
 mod semver_ext;
+mod sioxc;
 pub mod sqlite;
 pub mod style;
 pub mod toml;

@@ -78,7 +78,7 @@ use crate::util::errors::CargoResult;
 use crate::util::network::http::configure_http_handle;
 use crate::util::network::http::http_handle;
 use crate::util::{CanonicalUrl, closest_msg, internal};
-use crate::util::{Filesystem, IntoUrl, IntoUrlWithBase, Rustc};
+use crate::util::{Filesystem, IntoUrl, IntoUrlWithBase, Rustc, Sioxc};
 use anyhow::{Context as _, anyhow, bail, format_err};
 use cargo_credential::Secret;
 use cargo_util::paths;
@@ -461,6 +461,29 @@ impl GlobalContext {
         self.rustdoc
             .try_borrow_with(|| Ok(self.get_tool(Tool::Rustdoc, &self.build_config()?.rustdoc)))
             .map(AsRef::as_ref)
+    }
+
+    /// Select and query Sioxc from SIOXC, build.sioxc or PATH (Wafer only).
+    pub fn load_sioxc(&self) -> CargoResult<Sioxc> {
+        if !self.wafer {
+            bail!("Sioxc is only selected by a Wafer context");
+        }
+        let path = if let Some(path) = self.get_env_os("SIOXC") {
+            if path.is_empty() {
+                bail!("SIOXC must not be empty");
+            }
+            let path = PathBuf::from(path);
+            if path.components().count() > 1 || path.is_absolute() {
+                self.cwd.join(path)
+            } else {
+                path
+            }
+        } else {
+            self.get::<Option<ConfigRelativePath>>("build.sioxc")?
+                .map(|path| path.resolve_program(self))
+                .unwrap_or_else(|| PathBuf::from("sioxc"))
+        };
+        Sioxc::new(path, self)
     }
 
     /// Gets the path to the `rustc` executable.
@@ -3220,6 +3243,48 @@ mod tests {
     use super::GlobalContext;
     use super::Shell;
     use super::disables_multiplexing_for_bad_curl;
+
+    #[test]
+    #[ignore = "requires WAFER_TEST_SIOXC pointing to the actual query-capable Sioxc"]
+    fn actual_sioxc_selection_uses_sioxc_then_wafer_config_not_rustc() {
+        // This acceptance test must select a real compiler, never a fake program.
+        #[allow(clippy::disallowed_methods)]
+        let compiler = std::env::var("WAFER_TEST_SIOXC").expect("set WAFER_TEST_SIOXC");
+        let root = tempfile::tempdir().unwrap();
+        let mut gctx =
+            GlobalContext::new(Shell::new(), root.path().into(), root.path().join("home"));
+        gctx.set_search_stop_path(root.path());
+        gctx.wafer = true;
+        gctx.set_env(
+            [
+                ("SIOXC".into(), compiler.clone()),
+                (
+                    "WAFER_BUILD_SIOXC".into(),
+                    "not-the-selected-compiler".into(),
+                ),
+                ("RUSTC".into(), "must-not-run-rustc".into()),
+            ]
+            .into(),
+        );
+        assert_eq!(
+            gctx.load_sioxc().unwrap().path,
+            std::path::Path::new(&compiler)
+        );
+        gctx.set_env([("WAFER_BUILD_SIOXC".into(), compiler.clone())].into());
+        assert_eq!(
+            gctx.load_sioxc().unwrap().path,
+            std::path::Path::new(&compiler)
+        );
+        gctx.set_env([("SIOXC".into(), String::new())].into());
+        assert!(
+            gctx.load_sioxc()
+                .unwrap_err()
+                .to_string()
+                .contains("SIOXC must not be empty")
+        );
+        gctx.wafer = false;
+        assert!(gctx.load_sioxc().is_err());
+    }
 
     #[test]
     fn configuration_keys_and_errors_use_the_active_tool_namespace() {

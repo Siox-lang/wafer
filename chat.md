@@ -118,3 +118,55 @@ No native Sioxc, full upstream integration suite or platform acceptance claimed.
 Scoped engineering estimate approximately10% of Cargo-based Siox integration;
 compiler/version/target probes, dependencies, lockfiles, artifacts and native
 tests remain open. The active goal remains unfinished; no push was requested.
+
+## 2026-10-15 — Codex: compiler-owned toolchain query boundary
+
+Current cached Sioxc main lacks target/artifact queries; Cargo's Executor cannot
+replace those earlier Rust-specific planning probes. Own an isolated compiler
+worktree /home/max/siox-toolchain-queries from cached origin/main88e3d4c,
+not Claude's LLVM/IR work or the existing dirty compiled-units driver. Add real
+compiler-owned queries and consume them from the fork, with native/query tests;
+do not fabricate Rust capabilities or add a separate Wafer planner. Keep compiler
+changes uncommitted until the full Sioxc house gate is green. Fork/compiler
+builds remain guarded and serialized. No push or build support claimed yet.
+
+Sioxc query implementation is local in feat/toolchain-queries, with shared
+FileArtifact default names and actual build-host/LLVM metadata. Its full gate
+siox-job-3000-1792073275469765838-3577911.service is confirmed running:841 Rust
+tests passed, default corpus now executing; bitpack and final checks remain.
+Own fork util/sioxc.rs, public context loader and actual native probe tests.
+The loader selects SIOXC/build.sioxc/PATH and does not fake Rust identity or
+formats. Native acceptance tests are explicitly ignored unless selected with
+a real WAFER_TEST_SIOXC; no silent-pass fallback. Queued fork gate exec21616
+waits on confirmed live PID3577923, then runs11 CLI tests, actual native probe
+integration and library tests with --include-ignored, strict Clippy/fmt and
+graph refresh. Poll that same session for its unit/log. Both source trees are
+frozen; no adapter acceptance, full corpus pass, compiler/fork commit or push
+claimed yet. Cargo unit planning remains unadapted and build commands gated.
+
+Compiler full3577911 is terminal exit1, no OOM (peak1537024000 bytes):841 Rust
+tests and the additional frontend-only metadata tests pass, as do all-feature
+Clippy/fmt and scoped graph refresh, but both actual corpora are241/246 with the
+same five failures. Compiler changes remain uncommitted. Exact unchanged88e3d4c
+baseline comparison is running as siox-job-3000-1792074224666401596-3654471.service;
+do not claim pre-existing failures until it reproduces the matching messages.
+Cached origin/main was inspected/fetched and is nowa01f024 (#108), but the
+query worktree/base were not modified during verification.
+
+Queued exec21616 launched siox-job-3000-1792074156363090831-3585285.service,
+now exited/success/0 (peak1407860736 bytes):11 actual CLI tests,1 actual Sioxc
+probe integration and147 library tests including both previously ignored
+acceptance checks explicitly enabled. Fmt/strict relevant-target Clippy and
+graph refresh pass (8688 nodes/19696 edges). Probe/selection tests use the real
+local compiler and reject the actual Cargo executable as Sioxc. No fake
+compiler, native project build, reusable library, full Cargo integration suite,
+compiler house-gate pass or push is claimed. Approximate Cargo-based integration
+estimate12%; planning, build/dependency/cache/artifact/test adapters remain.
+
+Exact baseline3654471 is now exited/success/0, peak926982144 bytes: all five
+failures reproduce with the same messages under default and bitpack (10/10)
+on clean88e3d4c. This proves their presence before the compiler query patch,
+not a passing full compiler gate. Keep compiler changes local/uncommitted.
+The separately green fork probe boundary is ready for a scoped local commit;
+its actual compiler dependency is clearly documented as an unreleased local
+interface, and all build/check/test planning remains gated. No push requested.

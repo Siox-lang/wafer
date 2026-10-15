@@ -34,9 +34,27 @@ overrides do not implicitly configure Wafer. Logging/profiling and completion
 use `WAFER_LOG*` and `WAFER_COMPLETE`. Remaining compiler/registry environment
 contracts are still unadapted behind the unsupported-operation guard.
 
-Bootstrap validation: 11 executable CLI tests and 145 library tests (including
-143 upstream Cargo tests) pass, along with formatting and strict relevant-target Clippy. The full
-upstream integration suite and Sioxc compilation are not yet validated.
+The compiler adapter API selects `SIOXC`, then `build.sioxc` (including
+`WAFER_BUILD_SIOXC`), then `sioxc` on PATH. It queries Sioxc's own verbose
+version, native target and default artifact filenames. This requires the new
+compiler-owned `-vV`/`--print` interface in the local `feat/toolchain-queries`
+compiler branch; released/current older compilers are rejected rather than
+treated as Rust. These probes are not yet wired into Cargo's unit planning, so
+build/check/test remain disabled. Compiled-library formats are not emulated.
+
+Actual compiler-query acceptance is opt-in, not a fake compiler script or an
+implicit passing skip: set `WAFER_TEST_SIOXC` to that compiler binary and run
+`cargo test -p cargo --test sioxc_toolchain -- --ignored` plus
+`cargo test -p cargo --lib actual_sioxc_selection -- --ignored`.
+
+Adapter validation: 11 executable CLI tests, one actual Sioxc probe integration
+test and 147 library tests (including 143 upstream Cargo tests and the explicitly
+enabled native compiler-selection test) pass, along with formatting and strict
+relevant-target Clippy. This proves the probe boundary, not Cargo-driven Siox
+builds. The full upstream Cargo integration suite is not yet validated. The
+local compiler query branch passed its Rust/native/query tests but its full
+default and bitpack corpora each have five failures; it remains uncommitted
+under the compiler house gate.
 
 Preserve upstream LICENSE-MIT/LICENSE-APACHE and applicable third-party notices.
 Cargo dependencies include MPL components; actual binary notice/source
