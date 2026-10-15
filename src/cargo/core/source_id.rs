@@ -395,6 +395,12 @@ impl SourceId {
         gctx: &'a GlobalContext,
         yanked_whitelist: &HashSet<PackageId>,
     ) -> CargoResult<Box<dyn Source + 'a>> {
+        // Modified for Wafer: unadapted registries must never receive Siox traffic.
+        if gctx.is_wafer() && !self.is_path() && !self.is_git() {
+            anyhow::bail!(
+                "Wafer's registry/source adapter is not implemented; use explicit path or Git dependencies"
+            );
+        }
         trace!("loading SourceId; {}", self);
         match self.inner.kind {
             SourceKind::Git(..) => Ok(Box::new(GitSource::new(self, gctx)?)),

@@ -386,6 +386,14 @@ impl GlobalContext {
         }
     }
 
+    pub fn lockfile_filename(&self) -> &'static str {
+        if self.wafer {
+            "Wafer.lock"
+        } else {
+            crate::ops::lockfile::LOCKFILE_NAME
+        }
+    }
+
     pub fn tool_name(&self) -> &'static str {
         if self.wafer { "wafer" } else { "cargo" }
     }

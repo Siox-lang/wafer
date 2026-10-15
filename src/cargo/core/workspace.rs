@@ -692,6 +692,9 @@ impl<'gctx> Workspace<'gctx> {
     /// Get the lowest-common denominator `package.rust-version` within the workspace, if specified
     /// anywhere
     pub fn lowest_rust_version(&self) -> Option<&RustVersion> {
+        if self.gctx.is_wafer() {
+            return None;
+        }
         self.members().filter_map(|pkg| pkg.rust_version()).min()
     }
 
@@ -702,7 +705,7 @@ impl<'gctx> Workspace<'gctx> {
     }
 
     pub fn resolve_honors_rust_version(&self) -> bool {
-        self.resolve_honors_rust_version
+        !self.gctx.is_wafer() && self.resolve_honors_rust_version
     }
 
     pub fn set_resolve_feature_unification(&mut self, feature_unification: FeatureUnification) {

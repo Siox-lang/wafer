@@ -1,3 +1,4 @@
+// Modified for Wafer: share path/Git discovery without Cargo.toml fallback.
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Formatter};
 use std::fs;
@@ -124,7 +125,8 @@ impl<'gctx> PathSource<'gctx> {
     }
 
     fn read_package(&self) -> CargoResult<Package> {
-        let path = self.path.join("Cargo.toml");
+        // Modified for Wafer: load the active manifest, never fall back to Rust.
+        let path = self.path.join(self.gctx.manifest_filename());
         let pkg = ops::read_package(&path, self.source_id, self.gctx)?;
         Ok(pkg)
     }
@@ -1018,12 +1020,12 @@ fn read_packages(
 
         // Don't ever look at target directories
         if dir.file_name().and_then(|s| s.to_str()) == Some("target")
-            && has_manifest(dir.parent().unwrap())
+            && has_manifest(dir.parent().unwrap(), gctx)
         {
             return Ok(false);
         }
 
-        if has_manifest(dir) {
+        if has_manifest(dir, gctx) {
             read_nested_packages(
                 dir,
                 &mut all_packages,
@@ -1040,14 +1042,16 @@ fn read_packages(
         match errors.pop() {
             Some(err) => Err(err),
             None => {
-                if find_project_manifest_exact(path, "cargo.toml").is_ok() {
+                let name = gctx.manifest_filename();
+                let lowercase = name.to_ascii_lowercase();
+                if find_project_manifest_exact(path, &lowercase).is_ok() {
                     Err(anyhow::format_err!(
-                        "Could not find Cargo.toml in `{}`, but found cargo.toml please try to rename it to Cargo.toml",
-                        path.display()
+                        "Could not find {name} in `{}`, but found {lowercase} please try to rename it to {name}",
+                        path.display(),
                     ))
                 } else {
                     Err(anyhow::format_err!(
-                        "Could not find Cargo.toml in `{}`",
+                        "Could not find {name} in `{}`",
                         path.display()
                     ))
                 }
@@ -1124,8 +1128,8 @@ fn walk(path: &Path, callback: &mut dyn FnMut(&Path) -> CargoResult<bool>) -> Ca
     Ok(())
 }
 
-fn has_manifest(path: &Path) -> bool {
-    find_project_manifest_exact(path, "Cargo.toml").is_ok()
+fn has_manifest(path: &Path, gctx: &GlobalContext) -> bool {
+    find_project_manifest_exact(path, gctx.manifest_filename()).is_ok()
 }
 
 fn read_nested_packages(
@@ -1140,7 +1144,7 @@ fn read_nested_packages(
         return Ok(());
     }
 
-    let manifest_path = find_project_manifest_exact(path, "Cargo.toml")?;
+    let manifest_path = find_project_manifest_exact(path, gctx.manifest_filename())?;
 
     let manifest = match read_manifest(&manifest_path, source_id, gctx) {
         Err(err) => {

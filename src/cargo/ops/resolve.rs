@@ -55,6 +55,7 @@
 //! [source implementations]: crate::sources
 //! [`Downloads`]: crate::core::package::Downloads
 
+// Modified for Wafer: preserve path locks using the active manifest filename.
 use crate::core::Dependency;
 use crate::core::GitReference;
 use crate::core::PackageId;
@@ -581,7 +582,7 @@ fn register_previous_locks(
             return None;
         }
         if let Ok(path) = id.url().to_file_path() {
-            if let Ok(pkg) = ws.load(&path.join("Cargo.toml")) {
+            if let Ok(pkg) = ws.load(&path.join(ws.gctx().manifest_filename())) {
                 return Some(pkg);
             }
         }

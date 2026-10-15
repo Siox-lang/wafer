@@ -170,3 +170,44 @@ not a passing full compiler gate. Keep compiler changes local/uncommitted.
 The separately green fork probe boundary is ready for a scoped local commit;
 its actual compiler dependency is clearly documented as an unreleased local
 interface, and all build/check/test planning remains gated. No push requested.
+
+## 2026-10-15 — Codex: Cargo-based dependency locking
+
+Own active lockfile paths/header, path/Git package manifest loading, resolver
+source boundaries and generate-lockfile CLI/tests/docs. Enable explicit path
+and Git dependency locking through Cargo's existing resolver, Git cache and
+lock encoder; use Wafer.lock and never Cargo.lock for Wafer. Keep registry and
+other unadapted source kinds blocked before network access, even when reached
+transitively or through source replacement. Rust version preferences must not
+probe rustc for Siox. This does not enable builds, full metadata, packaging,
+fingerprint/source-file enumeration or native dependency libraries. Compiler
+query changes and Claude's LLVM work remain untouched. Guard full fork checks
+and actual CLI/Git/no-network regression tests before committing.
+
+Initial lockfile gate3685463 ended101, peak1385914368 bytes: the new test
+imported the macro implementation crate rather than cargo-test-support's
+existing public re-export. Fix the import; do not add a dependency. No runtime
+test pass is claimed from that failed compilation. Rerun the complete gate.
+
+Retry3691682 ended101, peak673275904 bytes: existing11 CLI +1 actual compiler
+probe and5/6 new resolver scenarios passed. The registry test's second case
+used a disabled optional transitive dependency, which Cargo correctly does
+not resolve. Preserve Cargo feature selection: make the negative transitive
+case required, also cover root optional dependencies (all root features are
+locked), and separately assert disabled transitive optional dependencies succeed
+without a registry connection or lock entry. No production validation is relaxed.
+
+Lockfile gate siox-job-3000-1792075121187256281-3697929.service finished
+exited/success/0, peak1170771968 bytes. Passed17 CLI/Git tests +1 actual Sioxc
+probe +147 library tests (including143 upstream and explicitly enabled native
+selection), fmt/strict relevant-target Clippy and AST graph update (8689 nodes,
+19700 edges). Actual Cargo/Wafer path graphs encode identically apart from the
+tool header in separate lockfiles; real Git nested workspace packages pin the
+commit, cached resolution survives a missing remote, explicit regeneration
+moves refs, locked errors preserve data, version/cycle failures do not write
+locks and registry replacement tests observe zero TCP connections. The fixed
+test covers Cargo's optional-feature reachability rather than changing it.
+Approximate Cargo-based integration estimate17%; compiled libraries, unit
+planning/compilation, full metadata, source fingerprints, native tests and
+wider resolver/platform/registry acceptance remain. Compiler query patch stays
+uncommitted behind its separate failing full corpus gate; no LLVM edits/push.

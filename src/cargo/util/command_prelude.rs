@@ -5,7 +5,6 @@ use crate::core::compiler::{
 };
 use crate::core::resolver::{CliFeatures, ForceAllTargets, HasDevUnits};
 use crate::core::{Edition, Package, Target, TargetKind, Workspace, profiles::Profiles, shell};
-use crate::ops::lockfile::LOCKFILE_NAME;
 use crate::ops::registry::RegistryOrIndex;
 use crate::ops::{self, CompileFilter, CompileOptions, NewOptions, Packages, VersionControl};
 // Modified for Wafer: manifest validation follows the explicit project context.
@@ -1114,9 +1113,10 @@ pub fn lockfile_path(
 
     let path = gctx.cwd().join(lockfile_path);
 
-    if !path.ends_with(LOCKFILE_NAME) {
+    let name = gctx.lockfile_filename();
+    if !path.ends_with(name) {
         bail!(
-            "the lockfile-path must be a path to a {LOCKFILE_NAME} file (please rename your lock file to {LOCKFILE_NAME})"
+            "the lockfile-path must be a path to a {name} file (please rename your lock file to {name})"
         )
     }
     if path.is_dir() {

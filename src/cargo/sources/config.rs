@@ -149,6 +149,12 @@ impl<'gctx> SourceConfigMap<'gctx> {
         id: SourceId,
         yanked_whitelist: &HashSet<PackageId>,
     ) -> CargoResult<Box<dyn Source + 'gctx>> {
+        // Modified for Wafer: reject registry replacements before loading any source.
+        if self.gctx.is_wafer() && !id.is_path() && !id.is_git() {
+            bail!(
+                "Wafer's registry/source adapter is not implemented; use explicit path or Git dependencies"
+            );
+        }
         debug!("loading: {}", id);
 
         let Some(mut name) = self.id2name.get(&id) else {

@@ -91,9 +91,10 @@ pub fn main(gctx: &mut GlobalContext) -> CliResult {
             }
         };
         if gctx.is_wafer()
-            && !(cmd == "locate-project" || (cmd == "metadata" && subcommand_args.flag("no-deps")))
+            && !(matches!(cmd, "locate-project" | "generate-lockfile")
+                || (cmd == "metadata" && subcommand_args.flag("no-deps")))
         {
-            return Err(anyhow::format_err!("Wafer's `{cmd}` adapter is not implemented yet; this bootstrap supports locate-project and metadata --no-deps only").into());
+            return Err(anyhow::format_err!("Wafer's `{cmd}` adapter is not implemented yet; supported commands are locate-project, metadata --no-deps and generate-lockfile").into());
         }
         let exec = Exec::infer(cmd)?;
         configure_gctx(
@@ -161,7 +162,7 @@ fn print_list(gctx: &GlobalContext, is_verbose: bool) {
     if gctx.is_wafer() {
         drop_println!(
             gctx,
-            "Installed Commands:\n    locate-project\n    metadata (requires --no-deps)"
+            "Installed Commands:\n    locate-project\n    metadata (requires --no-deps)\n    generate-lockfile"
         );
         return;
     }
@@ -731,7 +732,7 @@ See '<cyan,bold>cargo help</> <cyan><<command>></>' for more information on a sp
         }))
         .subcommands(commands::builtin());
     if gctx.is_wafer() {
-        command.help_template("Wafer — Cargo-based Siox project tool (bootstrap)\n\nUsage: {usage}\n\nOptions:\n{options}\n\nSupported Commands:\n    locate-project\n    metadata --no-deps\n\nCompiler and dependency adapters are not implemented yet.\n")
+        command.help_template("Wafer — Cargo-based Siox project tool (bootstrap)\n\nUsage: {usage}\n\nOptions:\n{options}\n\nSupported Commands:\n    locate-project\n    metadata --no-deps\n    generate-lockfile\n\nCompilation and registry adapters are not implemented yet.\n")
     } else {
         command
     }
