@@ -18,6 +18,8 @@
   encoded input format; verify rebasing, aliases and corruption handling via native API tests.
 - [x] Select configured Sioxc flags through Cargo's shared precedence and unit identity;
   verify encoded/plain environments, config arrays, native cfg and host isolation.
+- [x] Share compiler/native process environment setup through Cargo's `Compilation`;
+  verify actual Sioxc object/test/VCD execution, package variables and Rust-only guards.
 - Adapt external commands and remaining compiler/registry environment contracts.
 - Integrate dependency-sidecar collection and build-unit fingerprints with Siox execution.
   Include the actual compiler/ABI-feature identity, not just its semantic version:
@@ -38,7 +40,7 @@ Copying upstream functionality does not prove it works with Siox.
 
 Verified adapter: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions for both tools, one actual Sioxc probe integration,
-160 library tests (143 upstream, native selection/planning/dep-info explicitly enabled), formatting
+162 library tests (143 upstream, native selection/planning/dep-info/process setup explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
 Cargo-driven Siox compilation and compiled dependency libraries remain
 unsupported, not silently delegated to Rust. Compiler query

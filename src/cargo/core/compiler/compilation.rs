@@ -1,4 +1,5 @@
 //! Type definitions for the result of a compilation.
+// Modified for Wafer: share native process setup without Rust sysroots or compiler flags.
 
 use std::collections::{BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
@@ -10,14 +11,17 @@ use cargo_util::{ProcessBuilder, paths};
 use crate::core::Package;
 use crate::core::compiler::BuildContext;
 use crate::core::compiler::apply_env_config;
-use crate::core::compiler::{CompileKind, Unit, UnitHash};
+use crate::core::compiler::{CompileKind, CompilerRef, Unit, UnitHash, UnitTargetData};
 use crate::util::{CargoResult, GlobalContext, context};
+
+#[cfg(test)]
+mod tests;
 
 /// Represents the kind of process we are creating.
 #[derive(Debug)]
 enum ToolKind {
-    /// See [`Compilation::rustc_process`].
-    Rustc,
+    /// See [`Compilation::compiler_process`].
+    Compiler,
     /// See [`Compilation::rustdoc_process`].
     Rustdoc,
     /// See [`Compilation::host_process`].
@@ -27,8 +31,8 @@ enum ToolKind {
 }
 
 impl ToolKind {
-    fn is_rustc_tool(&self) -> bool {
-        matches!(self, ToolKind::Rustc | ToolKind::Rustdoc)
+    fn is_compiler_tool(&self) -> bool {
+        matches!(self, ToolKind::Compiler | ToolKind::Rustdoc)
     }
 }
 
@@ -111,13 +115,14 @@ pub struct Compilation<'gctx> {
 
     gctx: &'gctx GlobalContext,
 
-    /// Rustc process to be used by default
-    rustc_process: ProcessBuilder,
-    /// Rustc process to be used for workspace crates instead of `rustc_process`
-    rustc_workspace_wrapper_process: ProcessBuilder,
+    /// Selected compiler process, without language-specific invocation arguments.
+    compiler_process: ProcessBuilder,
+    /// Rust's optional workspace wrapper; identical to the selected process for Sioxc.
+    workspace_compiler_process: ProcessBuilder,
     /// Optional rustc process to be used for primary crates instead of either `rustc_process` or
     /// `rustc_workspace_wrapper_process`
     primary_rustc_process: Option<ProcessBuilder>,
+    is_sioxc: bool,
 
     target_runners: HashMap<CompileKind, Option<(PathBuf, Vec<String>)>>,
     /// The linker to use for each host or target.
@@ -128,10 +133,24 @@ pub struct Compilation<'gctx> {
 }
 
 impl<'gctx> Compilation<'gctx> {
-    pub fn new<'a>(bcx: &BuildContext<'a, 'gctx>) -> CargoResult<Compilation<'gctx>> {
-        let rustc_process = bcx.rustc().process();
+    pub fn new<'a, T: UnitTargetData>(
+        bcx: &BuildContext<'a, 'gctx, T>,
+    ) -> CargoResult<Compilation<'gctx>> {
+        let (compiler_process, workspace_compiler_process, is_sioxc) =
+            match bcx.target_data.compiler() {
+                CompilerRef::Rust(data) => {
+                    (data.rustc.process(), data.rustc.workspace_process(), false)
+                }
+                CompilerRef::Sioxc(compiler) => {
+                    anyhow::ensure!(
+                        bcx.build_config.primary_unit_rustc.is_none(),
+                        "Sioxc does not support Rust primary-unit compiler overrides"
+                    );
+                    let process = ProcessBuilder::new(&compiler.path);
+                    (process.clone(), process, true)
+                }
+            };
         let primary_rustc_process = bcx.build_config.primary_unit_rustc.clone();
-        let rustc_workspace_wrapper_process = bcx.rustc().workspace_process();
         Ok(Compilation {
             native_dirs: BTreeSet::new(),
             root_output: HashMap::new(),
@@ -145,9 +164,10 @@ impl<'gctx> Compilation<'gctx> {
             to_doc_test: Vec::new(),
             gctx: bcx.gctx,
             host: bcx.host_triple().to_string(),
-            rustc_process,
-            rustc_workspace_wrapper_process,
+            compiler_process,
+            workspace_compiler_process,
             primary_rustc_process,
+            is_sioxc,
             target_runners: bcx
                 .build_config
                 .requested_kinds
@@ -179,18 +199,33 @@ impl<'gctx> Compilation<'gctx> {
         is_primary: bool,
         is_workspace: bool,
     ) -> CargoResult<ProcessBuilder> {
-        let mut rustc = if is_primary && self.primary_rustc_process.is_some() {
+        anyhow::ensure!(
+            !self.is_sioxc,
+            "cannot prepare a Rust compiler invocation for Sioxc"
+        );
+        self.compiler_process(unit, is_primary, is_workspace)
+    }
+
+    /// Set up the selected compiler's process with the shared package environment.
+    /// The caller still owns validated compiler-specific invocation arguments.
+    pub fn compiler_process(
+        &self,
+        unit: &Unit,
+        is_primary: bool,
+        is_workspace: bool,
+    ) -> CargoResult<ProcessBuilder> {
+        let mut compiler = if is_primary && self.primary_rustc_process.is_some() {
             self.primary_rustc_process.clone().unwrap()
         } else if is_workspace {
-            self.rustc_workspace_wrapper_process.clone()
+            self.workspace_compiler_process.clone()
         } else {
-            self.rustc_process.clone()
+            self.compiler_process.clone()
         };
         if self.gctx.extra_verbose() {
-            rustc.display_env_vars();
+            compiler.display_env_vars();
         }
-        let cmd = fill_rustc_tool_env(rustc, unit);
-        self.fill_env(cmd, &unit.pkg, None, unit.kind, ToolKind::Rustc)
+        let cmd = fill_compiler_tool_env(compiler, unit, self.env_prefix());
+        self.fill_env(cmd, &unit.pkg, None, unit.kind, ToolKind::Compiler)
     }
 
     /// Returns a [`ProcessBuilder`] for running `rustdoc`.
@@ -199,11 +234,15 @@ impl<'gctx> Compilation<'gctx> {
         unit: &Unit,
         script_metas: Option<&Vec<UnitHash>>,
     ) -> CargoResult<ProcessBuilder> {
+        anyhow::ensure!(
+            !self.is_sioxc,
+            "Sioxc does not support Rust documentation invocations"
+        );
         let mut rustdoc = ProcessBuilder::new(&*self.gctx.rustdoc()?);
         if self.gctx.extra_verbose() {
             rustdoc.display_env_vars();
         }
-        let cmd = fill_rustc_tool_env(rustdoc, unit);
+        let cmd = fill_compiler_tool_env(rustdoc, unit, self.env_prefix());
         let mut cmd = self.fill_env(cmd, &unit.pkg, script_metas, unit.kind, ToolKind::Rustdoc)?;
         cmd.retry_with_argfile(true);
         unit.target.edition().cmd_edition_arg(&mut cmd);
@@ -290,7 +329,7 @@ impl<'gctx> Compilation<'gctx> {
         tool_kind: ToolKind,
     ) -> CargoResult<ProcessBuilder> {
         let mut search_path = Vec::new();
-        if tool_kind.is_rustc_tool() {
+        if tool_kind.is_compiler_tool() {
             if matches!(tool_kind, ToolKind::Rustdoc) {
                 // HACK: `rustdoc --test` not only compiles but executes doctests.
                 // Ideally only execution phase should have search paths appended,
@@ -319,7 +358,9 @@ impl<'gctx> Compilation<'gctx> {
                 // Proc macros dynamically link to std, so set it anyway.
                 pkg.proc_macro()
             {
-                search_path.push(self.sysroot_target_libdir[&kind].clone());
+                if let Some(directory) = self.sysroot_target_libdir.get(&kind) {
+                    search_path.push(directory.clone());
+                }
             }
         }
 
@@ -354,23 +395,39 @@ impl<'gctx> Compilation<'gctx> {
         }
 
         let cargo_exe = self.gctx.cargo_exe()?;
-        cmd.env(crate::CARGO_ENV, cargo_exe);
+        let prefix = self.env_prefix();
+        cmd.env(prefix, cargo_exe);
 
         // When adding new environment variables depending on
         // crate properties which might require rebuild upon change
         // consider adding the corresponding properties to the hash
         // in BuildContext::target_metadata()
-        cmd.env("CARGO_MANIFEST_DIR", pkg.root())
-            .env("CARGO_MANIFEST_PATH", pkg.manifest_path())
-            .env("CARGO_PKG_VERSION_MAJOR", &pkg.version().major.to_string())
-            .env("CARGO_PKG_VERSION_MINOR", &pkg.version().minor.to_string())
-            .env("CARGO_PKG_VERSION_PATCH", &pkg.version().patch.to_string())
-            .env("CARGO_PKG_VERSION_PRE", pkg.version().pre.as_str())
-            .env("CARGO_PKG_VERSION", &pkg.version().to_string())
-            .env("CARGO_PKG_NAME", &*pkg.name());
+        cmd.env(&format!("{prefix}_MANIFEST_DIR"), pkg.root())
+            .env(&format!("{prefix}_MANIFEST_PATH"), pkg.manifest_path())
+            .env(
+                &format!("{prefix}_PKG_VERSION_MAJOR"),
+                &pkg.version().major.to_string(),
+            )
+            .env(
+                &format!("{prefix}_PKG_VERSION_MINOR"),
+                &pkg.version().minor.to_string(),
+            )
+            .env(
+                &format!("{prefix}_PKG_VERSION_PATCH"),
+                &pkg.version().patch.to_string(),
+            )
+            .env(
+                &format!("{prefix}_PKG_VERSION_PRE"),
+                pkg.version().pre.as_str(),
+            )
+            .env(&format!("{prefix}_PKG_VERSION"), &pkg.version().to_string())
+            .env(&format!("{prefix}_PKG_NAME"), &*pkg.name());
 
         for (key, value) in pkg.manifest().metadata().env_vars() {
-            cmd.env(key, value.as_ref());
+            let key = key
+                .strip_prefix("CARGO_")
+                .expect("Cargo manifest environment key");
+            cmd.env(&format!("{prefix}_{key}"), value.as_ref());
         }
 
         cmd.cwd(pkg.root());
@@ -379,30 +436,41 @@ impl<'gctx> Compilation<'gctx> {
 
         Ok(cmd)
     }
+
+    fn env_prefix(&self) -> &'static str {
+        if self.is_sioxc {
+            "WAFER"
+        } else {
+            crate::CARGO_ENV
+        }
+    }
 }
 
 /// Prepares a `rustc_tool` process with additional environment variables
 /// that are only relevant in a context that has a unit
-fn fill_rustc_tool_env(mut cmd: ProcessBuilder, unit: &Unit) -> ProcessBuilder {
+fn fill_compiler_tool_env(mut cmd: ProcessBuilder, unit: &Unit, prefix: &str) -> ProcessBuilder {
     if unit.target.is_executable() {
         let name = unit
             .target
             .binary_filename()
             .unwrap_or(unit.target.name().to_string());
 
-        cmd.env("CARGO_BIN_NAME", name);
+        cmd.env(&format!("{prefix}_BIN_NAME"), name);
     }
-    cmd.env("CARGO_CRATE_NAME", unit.target.crate_name());
+    cmd.env(&format!("{prefix}_CRATE_NAME"), unit.target.crate_name());
     cmd
 }
 
-fn get_sysroot_target_libdir(
-    bcx: &BuildContext<'_, '_>,
+fn get_sysroot_target_libdir<T: UnitTargetData>(
+    bcx: &BuildContext<'_, '_, T>,
 ) -> CargoResult<HashMap<CompileKind, PathBuf>> {
+    let CompilerRef::Rust(data) = bcx.target_data.compiler() else {
+        return Ok(HashMap::new());
+    };
     bcx.all_kinds
         .iter()
         .map(|&kind| {
-            let Some(info) = bcx.target_data.get_info(kind) else {
+            let Some(info) = data.get_info(kind) else {
                 let target = match kind {
                     CompileKind::Host => "host".to_owned(),
                     CompileKind::Target(s) => s.short_name().to_owned(),
@@ -425,11 +493,15 @@ fn get_sysroot_target_libdir(
         .collect()
 }
 
-fn target_runner(
-    bcx: &BuildContext<'_, '_>,
+fn target_runner<T: UnitTargetData>(
+    bcx: &BuildContext<'_, '_, T>,
     kind: CompileKind,
 ) -> CargoResult<Option<(PathBuf, Vec<String>)>> {
-    let target = bcx.target_data.short_name(&kind);
+    let host = bcx.host_triple();
+    let target = match &kind {
+        CompileKind::Host => host.as_str(),
+        CompileKind::Target(target) => target.short_name(),
+    };
 
     // try target.{}.runner
     let key = format!("target.{}.runner", target);
@@ -440,7 +512,7 @@ fn target_runner(
     }
 
     // try target.'cfg(...)'.runner
-    let target_cfg = bcx.target_data.info(kind).cfg();
+    let target_cfg = bcx.target_data.compiler().cfg(kind);
     let mut cfgs = bcx
         .gctx
         .target_cfgs()?
@@ -468,11 +540,25 @@ fn target_runner(
 }
 
 /// Gets the user-specified linker for a particular host or target from the configuration.
-fn target_linker(bcx: &BuildContext<'_, '_>, kind: CompileKind) -> CargoResult<Option<PathBuf>> {
+fn target_linker<T: UnitTargetData>(
+    bcx: &BuildContext<'_, '_, T>,
+    kind: CompileKind,
+) -> CargoResult<Option<PathBuf>> {
+    let sioxc_config;
+    let config = match bcx.target_data.compiler() {
+        CompilerRef::Rust(data) => data.target_config(kind),
+        CompilerRef::Sioxc(_) => {
+            let host = bcx.host_triple();
+            let target = match &kind {
+                CompileKind::Host => host.as_str(),
+                CompileKind::Target(target) => target.short_name(),
+            };
+            sioxc_config = bcx.gctx.target_cfg_triple(target)?;
+            &sioxc_config
+        }
+    };
     // Try host.linker and target.{}.linker.
-    if let Some(path) = bcx
-        .target_data
-        .target_config(kind)
+    if let Some(path) = config
         .linker
         .as_ref()
         .map(|l| l.val.clone().resolve_program(bcx.gctx))
@@ -481,7 +567,7 @@ fn target_linker(bcx: &BuildContext<'_, '_>, kind: CompileKind) -> CargoResult<O
     }
 
     // Try target.'cfg(...)'.linker.
-    let target_cfg = bcx.target_data.info(kind).cfg();
+    let target_cfg = bcx.target_data.compiler().cfg(kind);
     let mut cfgs = bcx
         .gctx
         .target_cfgs()?

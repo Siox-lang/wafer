@@ -23,6 +23,22 @@ pub struct UnitCompilerOptions {
 /// The unit planner needs options, not Rust sysroots or crate output formats.
 pub trait UnitTargetData: PlatformData {
     fn unit_options(&self, kind: CompileKind) -> UnitCompilerOptions;
+    fn compiler(&self) -> CompilerRef<'_>;
+}
+
+/// The selected compiler's actual facts, not a Rust-compatible synthetic toolchain.
+pub enum CompilerRef<'a> {
+    Rust(&'a RustcTargetData<'a>),
+    Sioxc(&'a Sioxc),
+}
+
+impl<'a> CompilerRef<'a> {
+    pub fn cfg(&self, kind: CompileKind) -> &'a [cargo_platform::Cfg] {
+        match self {
+            Self::Rust(data) => data.cfg(kind),
+            Self::Sioxc(compiler) => &compiler.host_cfg,
+        }
+    }
 }
 
 impl PlatformData for RustcTargetData<'_> {
@@ -38,6 +54,10 @@ impl PlatformData for RustcTargetData<'_> {
 }
 
 impl UnitTargetData for RustcTargetData<'_> {
+    fn compiler(&self) -> CompilerRef<'_> {
+        CompilerRef::Rust(self)
+    }
+
     fn unit_options(&self, kind: CompileKind) -> UnitCompilerOptions {
         UnitCompilerOptions {
             compiler_flags: self.info(kind).rustflags.clone(),
@@ -107,6 +127,10 @@ impl SioxcTargetData {
 }
 
 impl UnitTargetData for SioxcTargetData {
+    fn compiler(&self) -> CompilerRef<'_> {
+        CompilerRef::Sioxc(&self.compiler)
+    }
+
     fn unit_options(&self, kind: CompileKind) -> UnitCompilerOptions {
         match kind {
             CompileKind::Host => self.host_options.clone(),

@@ -90,6 +90,13 @@ Embedded users can construct a sandboxed Wafer context with
 `GlobalContext::new_wafer(shell, cwd, home)`; the existing `new` remains Cargo's
 constructor. Neither requires changing the process directory or environment.
 
+The shared `Compilation` setup can prepare either compiler's process and native
+target commands. Sioxc processes receive `WAFER_*` package/unit variables and
+the active `WAFER` executable; Cargo retains its `CARGO_*` environment. Rust
+wrappers, sysroot search paths and documentation commands stay Rust-only.
+Callers still prepare output layouts and validated invocation arguments. This
+does not yet connect Siox units to Cargo's scheduler or enable CLI builds.
+
 Actual compiler-query acceptance is opt-in, not a fake compiler script or an
 implicit passing skip: set `WAFER_TEST_SIOXC` to that compiler binary and run
 `cargo test -p cargo --test sioxc_toolchain -- --ignored` plus
@@ -102,11 +109,13 @@ Both compiler paths are also required for the shared planner acceptance:
 Dependency-sidecar acceptance additionally needs `WAFER_TEST_STD` pointing to
 the actual Siox std checkout:
 `cargo test -p cargo --lib fingerprint::dep_info::tests -- --ignored`.
+Native shared-process acceptance uses the same compiler/std variables:
+`cargo test -p cargo --lib compiler::compilation::tests -- --ignored`.
 
 Adapter validation: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions covering both tools, one actual Sioxc probe integration
-test and 160 library tests (including 143 upstream Cargo tests and the explicitly
-enabled native compiler-selection and shared-planning tests) pass, along with
+test and 162 library tests (including 143 upstream Cargo tests and the explicitly
+enabled native compiler-selection, shared-planning and process-setup tests) pass, along with
 formatting and strict relevant-target Clippy. Metadata/unit graphs and features match Cargo, Git pins
 are retained, and the reference Cargo binary still builds and runs a native path
 dependency project. This is not Cargo-driven Siox build support. The full

@@ -533,7 +533,7 @@ impl GlobalContext {
         )
     }
 
-    /// Gets the path to the `cargo` executable.
+    /// Gets the active package tool executable (`cargo` or `wafer`).
     pub fn cargo_exe(&self) -> CargoResult<&Path> {
         self.cargo_exe
             .try_borrow_with(|| {
@@ -542,10 +542,15 @@ impl GlobalContext {
                     // commands that use Cargo as a library to inherit (via `cargo <subcommand>`)
                     // or set (by setting `$CARGO`) a correct path to `cargo` when the current exe
                     // is not actually cargo (e.g., `cargo-*` binaries, Valgrind, `ld.so`, etc.).
+                    let variable = if self.wafer {
+                        "WAFER"
+                    } else {
+                        crate::CARGO_ENV
+                    };
                     let exe = self
-                        .get_env_os(crate::CARGO_ENV)
+                        .get_env_os(variable)
                         .map(PathBuf::from)
-                        .ok_or_else(|| anyhow!("$CARGO not set"))?;
+                        .ok_or_else(|| anyhow!("${variable} not set"))?;
                     Ok(exe)
                 };
 
@@ -574,24 +579,25 @@ impl GlobalContext {
 
                 // Determines whether `path` is a cargo binary.
                 // See: https://github.com/rust-lang/cargo/issues/15099#issuecomment-2666737150
-                fn is_cargo(path: &Path) -> bool {
-                    path.file_stem() == Some(OsStr::new("cargo"))
-                }
+                let is_active_tool =
+                    |path: &Path| path.file_stem() == Some(OsStr::new(self.tool_name()));
 
                 let from_current_exe = from_current_exe();
-                if from_current_exe.as_deref().is_ok_and(is_cargo) {
+                if from_current_exe.as_deref().is_ok_and(is_active_tool) {
                     return from_current_exe;
                 }
 
                 let from_argv = from_argv();
-                if from_argv.as_deref().is_ok_and(is_cargo) {
+                if from_argv.as_deref().is_ok_and(is_active_tool) {
                     return from_argv;
                 }
 
                 let exe = from_env()
                     .or(from_current_exe)
                     .or(from_argv)
-                    .context("couldn't get the path to cargo executable")?;
+                    .with_context(|| {
+                        format!("couldn't get the path to {} executable", self.tool_name())
+                    })?;
                 Ok(exe)
             })
             .map(AsRef::as_ref)

@@ -487,3 +487,41 @@ Refreshed query compiler CI4104023 finished exit1, peak1612701696 bytes.
 Fmt, Phase1 artifact check, frontend check/Clippy, build,864 default Rust tests,
 843 bitpack Rust tests and all-target/all-feature Clippy passed. Both corpora
 are241/246 on the same five baseline cases; preserve the compiler WIP locally.
+
+## 2026-10-15 — Codex: shared compilation process/environment setup
+
+Own compilation.rs and the existing platform provider seam plus actual native
+acceptance. Make Cargo's Compilation constructor and target runner/linker lookup
+consume the selected compiler facts, keeping Rust wrappers/sysroots Rust-only.
+Use the same process/environment and native target execution setup for Sioxc;
+do not create a second scheduler or enable normal CLI builds before the shared
+runner/artifact/fingerprint work is ready. Guard Rust-only process methods for
+Siox contexts. Preserve reference Cargo behavior and exercise actual native
+Sioxc compile/run commands through the shared Compilation setup.
+
+Compilation gate220469 exited75 before running: live peer219933 owns the lock
+for a release build in siox-conv. No test failure/pass is inferred. Keep this
+source frozen and queue the identical full fork gate behind that exact PID;
+inspect the eventual retained unit to terminal rather than bypassing the peer.
+
+Gate221131 finished exit101, peak1090506752 bytes: the new native acceptance
+used an iterator with cargo-util ProcessBuilder::args, whose actual API accepts
+a slice. Fix only that test call to borrow the existing Rc slice and rerun the
+entire gate; this was a compile error, not successful native acceptance.
+
+Corrected gate222484 exited75 before running. Verified a new live peer222130
+owns the lock for Claude's generated numeric comparison tests. Queue the full
+gate behind this exact peer, do not cancel it or count contention as test failure.
+No executable source changes after the test-call correction; keep it frozen.
+
+Shared process gate siox-job-3000-1792097868927739506-223126.service finished
+exited/success/0, peak1612480512 bytes:162 library tests and28 integrations
+pass (190 total), strict relevant-target Clippy, fmt and AST update pass
+(8798 nodes/19976 edges). Actual Sioxc object and test binaries are compiled
+through Compilation's compiler process, then the native test executes through
+its target process and produces VCD. WAFER package/unit/config env, active tool
+selection, no fabricated Rust sysroots, Rust-only entry-point rejection and
+ambiguous runner/primary-override failures pass. Cargo reference build/run stays
+green. No Siox scheduler integration, CLI build, compiled libraries or compiler
+gate waiver is claimed. Scoped integration estimate36%; no new dependencies or
+push. Only documentation/evidence changes follow this accepted semantic state.
