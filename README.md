@@ -19,11 +19,22 @@ by the inherited Cargo help/API or resolver code. See TODO.md and chat.md.
 
 Bootstrap metadata uses Cargo's package/target/workspace shape but omits
 Rust-only edition, rust-version and crate-type fields. It does not claim
-byte-for-byte Rust metadata compatibility. Home/config/environment still use
-the inherited Cargo conventions until Wafer isolation is adapted; the current
-read-only commands do not fetch dependencies or invoke a compiler.
+byte-for-byte Rust metadata compatibility. The current read-only commands do
+not fetch dependencies or invoke a compiler.
 
-Bootstrap validation: 8 executable CLI tests and 144 library tests (including
+Wafer discovers `.wafer/config.toml` in the current directory and its ancestors,
+then merges its home configuration with Cargo's existing precedence rules.
+Home defaults to `~/.wafer`; `WAFER_HOME` overrides it (relative paths resolve
+from the working directory, and an empty override uses the default). Typed
+configuration environment keys use `WAFER_`, e.g. `WAFER_BUILD_TARGET_DIR`.
+`WAFER_TARGET_DIR` provides the direct target-directory override. `--config`
+and aliases retain Cargo's validation and precedence, but aliases cannot enable
+unsupported commands. Cargo home/project config and `CARGO_*` configuration
+overrides do not implicitly configure Wafer. Logging/profiling and completion
+use `WAFER_LOG*` and `WAFER_COMPLETE`. Remaining compiler/registry environment
+contracts are still unadapted behind the unsupported-operation guard.
+
+Bootstrap validation: 11 executable CLI tests and 145 library tests (including
 143 upstream Cargo tests) pass, along with formatting and strict relevant-target Clippy. The full
 upstream integration suite and Sioxc compilation are not yet validated.
 

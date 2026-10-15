@@ -88,3 +88,33 @@ is verified, but compiler, dependencies, configuration, artifacts and native
 test execution remain unadapted. No full upstream integration/platform/native
 simulation acceptance or push claimed. Next boundary: isolated Wafer config
 and honest Sioxc capability/target probes, then shared compilation planning.
+
+## 2026-10-15 — Codex: Wafer configuration isolation
+
+Own GlobalContext home/config discovery, typed environment-key constructors,
+their config/target/auth callers, active binary environment entry points and
+CLI regression tests/docs. Reuse Cargo config parsing/merging with .wafer,
+WAFER_HOME and WAFER_* keys; do not rewrite the process environment or expose
+Cargo user config/credentials to Wafer. Keep the reference Cargo behavior.
+Also close the inherited rustfix proxy entry point for Wafer so an environment
+variable cannot bypass the unsupported-compiler guard. Dependency resolution,
+external command dispatch and native compilation remain gated/unadapted.
+
+Gate siox-job-3000-1792072282177982284-3525714.service ended101, peak1362223104
+bytes. All11 actual CLI regressions passed; the new library test had an ambiguous
+unnecessary .into() at generic set_search_stop_path. Pass &Path directly and
+rerun the same gate. No whole-gate pass or commit claimed from this failed run.
+
+Retry1792072346372999316-3529719 ended75 on contention. Queued exec56781
+behind confirmed live holder3529211, then inspected its returned gate
+siox-job-3000-1792072380415871959-3530649.service: exited/success/0,
+peak1124179968 bytes. All11 executable CLI tests,145 library tests (143 upstream),
+formatting and strict relevant-target Clippy pass. Graph refresh completed
+(8675 nodes/19648 edges). Tests cover Cargo/Wafer home and config isolation,
+relative/absolute/empty WAFER_HOME, typed/direct environment keys, CLI config
+precedence, aliases/unsupported operations, key push/pop and error origins,
+home changes forbidden through [env], and the inherited rustfix-proxy bypass.
+No native Sioxc, full upstream integration suite or platform acceptance claimed.
+Scoped engineering estimate approximately10% of Cargo-based Siox integration;
+compiler/version/target probes, dependencies, lockfiles, artifacts and native
+tests remain open. The active goal remains unfinished; no push was requested.

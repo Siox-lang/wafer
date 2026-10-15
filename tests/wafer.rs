@@ -11,17 +11,21 @@ fn write(root: &Path, path: &str, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
-fn cli(binary: &str, root: &Path, args: &[&str]) -> Output {
-    Command::new(binary)
+fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new(binary);
+    command
         .current_dir(root)
         .env_clear()
         .env("HOME", root.join("home"))
         .env("CARGO_HOME", root.join("home/.cargo"))
         .env("RUSTC", "compiler-must-not-be-executed")
         .env("RUSTUP_HOME", root.join("missing-rustup"))
-        .args(args)
-        .output()
-        .unwrap()
+        .args(args);
+    command
+}
+
+fn cli(binary: &str, root: &Path, args: &[&str]) -> Output {
+    command(binary, root, args).output().unwrap()
 }
 
 fn success(output: Output) -> String {
@@ -413,4 +417,197 @@ fn wafer_explicit_build_scripts_fail_until_their_adapter_exists() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+}
+
+#[test]
+fn wafer_home_and_project_config_are_isolated_from_cargo() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "Wafer.toml", "[package]\nname='controller'\n");
+    write(root, "Cargo.toml", "[package]\nname='controller'\n");
+    write(root, "src/lib.siox", "metadata only");
+    write(root, "src/lib.rs", "metadata only");
+    write(root, ".cargo/config.toml", "[broken Cargo config");
+    write(root, "home/.cargo/config.toml", "[broken Cargo home config");
+    write(
+        root,
+        "home/.wafer/config.toml",
+        "[build]\ntarget-dir='default-output'\n",
+    );
+    assert_eq!(
+        metadata(WAFER, root)["target_directory"],
+        root.join("home/default-output").to_str().unwrap()
+    );
+    let cargo = cli(
+        CARGO,
+        root,
+        &["metadata", "--no-deps", "--format-version", "1"],
+    );
+    assert!(!cargo.status.success());
+    assert!(String::from_utf8_lossy(&cargo.stderr).contains(".cargo"));
+
+    write(
+        root,
+        "relative-store/config.toml",
+        "[build]\ntarget-dir='override-output'\n",
+    );
+    for home in [PathBuf::from("relative-store"), root.join("relative-store")] {
+        let output = command(
+            WAFER,
+            root,
+            &["metadata", "--no-deps", "--format-version", "1"],
+        )
+        .env("WAFER_HOME", home)
+        .output()
+        .unwrap();
+        let json: serde_json::Value = serde_json::from_str(&success(output)).unwrap();
+        assert_eq!(
+            json["target_directory"],
+            root.join("override-output").to_str().unwrap()
+        );
+    }
+    let output = command(
+        WAFER,
+        root,
+        &["metadata", "--no-deps", "--format-version", "1"],
+    )
+    .env("WAFER_HOME", "")
+    .output()
+    .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&success(output)).unwrap();
+    assert_eq!(
+        json["target_directory"],
+        root.join("home/default-output").to_str().unwrap()
+    );
+
+    write(root, ".wafer/config.toml", "[broken Wafer config");
+    let output = cli(
+        WAFER,
+        root,
+        &["metadata", "--no-deps", "--format-version", "1"],
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Wafer configuration"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(".wafer"));
+}
+
+#[test]
+fn wafer_reuses_config_precedence_aliases_and_tool_specific_environment_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    for manifest in ["Wafer.toml", "Cargo.toml"] {
+        write(root, manifest, "[package]\nname='controller'\n");
+    }
+    for path in ["src/lib.siox", "src/lib.rs"] {
+        write(root, path, "metadata only");
+    }
+    write(
+        root,
+        "home/.wafer/config.toml",
+        "[build]\ntarget-dir='global-output'\n",
+    );
+    write(
+        root,
+        ".wafer/config.toml",
+        "[build]\ntarget-dir='wafer-output'\n[alias]\nprobe='metadata --no-deps --format-version 1'\n",
+    );
+    write(
+        root,
+        ".cargo/config.toml",
+        "[build]\ntarget-dir='cargo-output'\n[alias]\nprobe='metadata --no-deps --format-version 1'\n",
+    );
+    for (binary, prefix, expected) in [
+        (WAFER, "WAFER", "wafer-output"),
+        (CARGO, "CARGO", "cargo-output"),
+    ] {
+        let json: serde_json::Value =
+            serde_json::from_str(&success(cli(binary, root, &["probe"]))).unwrap();
+        assert_eq!(
+            json["target_directory"],
+            root.join(expected).to_str().unwrap()
+        );
+
+        let mut cmd = command(binary, root, &["probe"]);
+        cmd.env("WAFER_TARGET_DIR", "wafer-env-output")
+            .env("CARGO_TARGET_DIR", "cargo-env-output");
+        let json: serde_json::Value =
+            serde_json::from_str(&success(cmd.output().unwrap())).unwrap();
+        assert_eq!(
+            json["target_directory"],
+            root.join(if prefix == "WAFER" {
+                "wafer-env-output"
+            } else {
+                "cargo-env-output"
+            })
+            .to_str()
+            .unwrap()
+        );
+
+        let mut cmd = command(binary, root, &["probe"]);
+        cmd.env("WAFER_BUILD_TARGET_DIR", "wafer-typed-output")
+            .env("CARGO_BUILD_TARGET_DIR", "cargo-typed-output");
+        let json: serde_json::Value =
+            serde_json::from_str(&success(cmd.output().unwrap())).unwrap();
+        assert_eq!(
+            json["target_directory"],
+            root.join(if prefix == "WAFER" {
+                "wafer-typed-output"
+            } else {
+                "cargo-typed-output"
+            })
+            .to_str()
+            .unwrap()
+        );
+
+        let mut cmd = command(
+            binary,
+            root,
+            &["--config", "build.target-dir='cli-output'", "probe"],
+        );
+        cmd.env(format!("{prefix}_BUILD_TARGET_DIR"), "typed-output");
+        let json: serde_json::Value =
+            serde_json::from_str(&success(cmd.output().unwrap())).unwrap();
+        assert_eq!(
+            json["target_directory"],
+            root.join("cli-output").to_str().unwrap()
+        );
+
+        let output = command(binary, root, &["probe"])
+            .env(format!("{prefix}_TARGET_DIR"), "")
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(&format!("{prefix}_TARGET_DIR")));
+    }
+
+    let output = command(WAFER, root, &["probe"])
+        .env("CARGO_ALIAS_PROBE", "search should-not-run")
+        .env("WAFER_ALIAS_PROBE", "locate-project --message-format plain")
+        .output()
+        .unwrap();
+    assert_eq!(
+        PathBuf::from(success(output).trim()),
+        root.join("Wafer.toml")
+    );
+    let output = command(WAFER, root, &["probe"])
+        .env("WAFER_ALIAS_PROBE", "build")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("adapter is not implemented"));
+}
+
+#[test]
+fn cargo_fix_environment_cannot_bypass_the_wafer_compiler_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = command(WAFER, dir.path(), &["build"])
+        .env("__CARGO_FIX_PLZ", "127.0.0.1:1")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("Wafer's `build` adapter is not implemented")
+    );
+    assert!(!dir.path().join("target").exists());
 }

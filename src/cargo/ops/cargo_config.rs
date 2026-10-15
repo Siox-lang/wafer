@@ -1,5 +1,7 @@
 //! Implementation of `cargo config` subcommand.
 
+// Modified for Wafer: share config inspection without Cargo env-key fallback.
+
 use crate::util::context::{ConfigKey, ConfigValue as CV, Definition, GlobalContext};
 use crate::util::errors::CargoResult;
 use crate::{drop_eprintln, drop_println};
@@ -57,10 +59,7 @@ pub fn get(gctx: &GlobalContext, opts: &GetOptions<'_>) -> CargoResult<()> {
             opts.format
         );
     }
-    let key = match opts.key {
-        Some(key) => ConfigKey::from_str(key),
-        None => ConfigKey::new(),
-    };
+    let key = gctx.config_key(opts.key);
     if opts.merged {
         let cv = gctx
             .get_cv_with_env(&key)?
@@ -225,7 +224,7 @@ fn print_toml_unmerged(
 ) -> CargoResult<()> {
     let print_table = |cv: &CV| {
         drop_println!(gctx, "# {}", cv.definition());
-        print_toml(gctx, opts, &ConfigKey::new(), cv);
+        print_toml(gctx, opts, &gctx.config_key(None), cv);
         drop_println!(gctx, "");
     };
     // This removes entries from the given CV so that all that remains is the

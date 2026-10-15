@@ -350,9 +350,28 @@ impl GlobalContext {
     }
 
     pub fn for_wafer() -> CargoResult<GlobalContext> {
-        let mut context = Self::default()?;
+        let cwd =
+            env::current_dir().context("couldn't get the current directory of the process")?;
+        // The home override is needed before a GlobalContext can be constructed.
+        #[allow(clippy::disallowed_methods)]
+        let home_override = env::var_os("WAFER_HOME").filter(|path| !path.is_empty());
+        let homedir = home_override
+            .map(|path| cwd.join(path))
+            .or_else(|| ::home::home_dir().map(|path| path.join(".wafer")))
+            .ok_or_else(|| anyhow!("Wafer couldn't find your home directory; set WAFER_HOME"))?;
+        let mut context = Self::new(Shell::new(), cwd, homedir);
         context.wafer = true;
         Ok(context)
+    }
+
+    pub(crate) fn config_key(&self, key: Option<&str>) -> ConfigKey {
+        let mut result = ConfigKey::with_env_prefix(if self.wafer { "WAFER" } else { "CARGO" });
+        if let Some(key) = key {
+            for part in key.split('.') {
+                result.push(part);
+            }
+        }
+        result
     }
 
     pub fn is_wafer(&self) -> bool {
@@ -645,14 +664,19 @@ impl GlobalContext {
     ///
     /// Callers should prefer [`Workspace::target_dir`] instead.
     pub fn target_dir(&self) -> CargoResult<Option<Filesystem>> {
+        let env_key = if self.wafer {
+            "WAFER_TARGET_DIR"
+        } else {
+            "CARGO_TARGET_DIR"
+        };
         if let Some(dir) = &self.target_dir {
             Ok(Some(dir.clone()))
-        } else if let Some(dir) = self.get_env_os("CARGO_TARGET_DIR") {
+        } else if let Some(dir) = self.get_env_os(env_key) {
             // Check if the CARGO_TARGET_DIR environment variable is set to an empty string.
             if dir.is_empty() {
                 bail!(
                     "the target directory is set to an empty string in the \
-                     `CARGO_TARGET_DIR` environment variable"
+                     `{env_key}` environment variable"
                 )
             }
 
@@ -802,7 +826,7 @@ impl GlobalContext {
                 | CV::String(_, def)
                 | CV::List(_, def)
                 | CV::Boolean(_, def) => {
-                    let mut key_so_far = ConfigKey::new();
+                    let mut key_so_far = self.config_key(None);
                     for part in key.parts().take(i) {
                         key_so_far.push(part);
                     }
@@ -1021,7 +1045,7 @@ impl GlobalContext {
     /// NOTE: this does **not** support environment variables. Use `get` instead
     /// if you want that.
     pub fn get_list(&self, key: &str) -> CargoResult<OptValue<Vec<(String, Definition)>>> {
-        let key = ConfigKey::from_str(key);
+        let key = self.config_key(Some(key));
         self._get_list(&key)
     }
 
@@ -1294,7 +1318,12 @@ impl GlobalContext {
             result.push(cv);
             Ok(())
         })
-        .context("could not load Cargo configuration")?;
+        .with_context(|| {
+            format!(
+                "could not load {} configuration",
+                if self.wafer { "Wafer" } else { "Cargo" }
+            )
+        })?;
         Ok(result)
     }
 
@@ -1334,7 +1363,12 @@ impl GlobalContext {
             })?;
             Ok(())
         })
-        .context("could not load Cargo configuration")?;
+        .with_context(|| {
+            format!(
+                "could not load {} configuration",
+                if self.wafer { "Wafer" } else { "Cargo" }
+            )
+        })?;
 
         match cfg {
             CV::Table(map, _) => Ok(map),
@@ -1691,9 +1725,11 @@ impl GlobalContext {
                         "`{}` is deprecated in favor of `{filename_without_extension}.toml`",
                         possible.display(),
                     ))?;
-                    self.shell().note(
+                    if !self.wafer {
+                        self.shell().note(
                         format!("if you need to support cargo 1.38 or earlier, you can symlink `{filename_without_extension}` to `{filename_without_extension}.toml`"),
-                    )?;
+                        )?;
+                    }
                 }
             }
 
@@ -1712,7 +1748,7 @@ impl GlobalContext {
         let mut seen_dir = HashSet::new();
 
         for current in paths::ancestors(pwd, self.search_stop_path.as_deref()) {
-            let config_root = current.join(".cargo");
+            let config_root = current.join(if self.wafer { ".wafer" } else { ".cargo" });
             if let Some(path) = self.get_file_path(&config_root, "config", true)? {
                 walk(&path)?;
             }
@@ -1978,7 +2014,12 @@ impl GlobalContext {
                 //   problems with cargo and rustc being from different toolchains. We
                 //   consider this to be not a use case we would like to support,
                 //   since it will likely cause problems or lead to confusion.
-                for disallowed in &["CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"] {
+                let home_key = if self.wafer {
+                    "WAFER_HOME"
+                } else {
+                    "CARGO_HOME"
+                };
+                for disallowed in &[home_key, "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"] {
                     if env_config.contains_key(*disallowed) {
                         bail!(
                             "setting the `{disallowed}` environment variable is not supported \
@@ -2077,7 +2118,7 @@ impl GlobalContext {
     pub fn get<'de, T: serde::de::Deserialize<'de>>(&self, key: &str) -> CargoResult<T> {
         let d = Deserializer {
             gctx: self,
-            key: ConfigKey::from_str(key),
+            key: self.config_key(Some(key)),
             env_prefix_ok: true,
         };
         T::deserialize(d).map_err(|e| e.into())
@@ -3179,6 +3220,62 @@ mod tests {
     use super::GlobalContext;
     use super::Shell;
     use super::disables_multiplexing_for_bad_curl;
+
+    #[test]
+    fn configuration_keys_and_errors_use_the_active_tool_namespace() {
+        let dir = tempfile::tempdir().unwrap();
+        for wafer in [false, true] {
+            let mut gctx =
+                GlobalContext::new(Shell::new(), dir.path().into(), dir.path().join("home"));
+            gctx.wafer = wafer;
+            gctx.set_search_stop_path(dir.path());
+            gctx.set_env(
+                [
+                    ("CARGO_HTTP_TIMEOUT".into(), "7".into()),
+                    ("WAFER_HTTP_TIMEOUT".into(), "19".into()),
+                ]
+                .into(),
+            );
+            assert_eq!(
+                gctx.get::<u64>("http.timeout").unwrap(),
+                if wafer { 19 } else { 7 }
+            );
+
+            let prefix = if wafer { "WAFER" } else { "CARGO" };
+            let mut key = gctx.config_key(Some("target"));
+            key.push_sensitive("Some-Target");
+            key.push("linker");
+            assert_eq!(
+                key.as_env_key(),
+                format!("{prefix}_TARGET_Some-Target_LINKER")
+            );
+            key.pop();
+            key.pop();
+            assert_eq!(key.as_env_key(), format!("{prefix}_TARGET"));
+            key.pop();
+            assert!(key.is_root());
+            assert_eq!(key.as_env_key(), prefix);
+
+            gctx.set_env([(format!("{prefix}_HTTP_TIMEOUT"), "not-a-number".into())].into());
+            let error = gctx.get::<u64>("http.timeout").unwrap_err().to_string();
+            assert!(error.contains(&format!("{prefix}_HTTP_TIMEOUT")), "{error}");
+
+            std::fs::create_dir_all(dir.path().join(if wafer { ".wafer" } else { ".cargo" }))
+                .unwrap();
+            std::fs::write(
+                dir.path().join(if wafer {
+                    ".wafer/config.toml"
+                } else {
+                    ".cargo/config.toml"
+                }),
+                format!("[env]\n{prefix}_HOME='must-not-change-home'\n"),
+            )
+            .unwrap();
+            gctx.reload_rooted_at(dir.path()).unwrap();
+            let error = gctx.env_config().unwrap_err().to_string();
+            assert!(error.contains(&format!("{prefix}_HOME")), "{error}");
+        }
+    }
 
     #[test]
     fn disables_multiplexing() {

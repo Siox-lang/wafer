@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+// Modified for Wafer: share key normalization with a tool-specific env prefix.
 use std::fmt;
 
 /// Key for a configuration variable.
@@ -27,8 +28,12 @@ impl ConfigKey {
     /// Creates a new blank configuration key which is ready to get built up by
     /// using `push` and `push_sensitive`.
     pub fn new() -> ConfigKey {
+        Self::with_env_prefix("CARGO")
+    }
+
+    pub(super) fn with_env_prefix(prefix: &str) -> ConfigKey {
         ConfigKey {
-            env: "CARGO".to_string(),
+            env: prefix.to_string(),
             parts: Vec::new(),
         }
     }

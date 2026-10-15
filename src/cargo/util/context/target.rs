@@ -1,4 +1,5 @@
 use super::{CV, ConfigKey, ConfigRelativePath, GlobalContext, OptValue, PathAndArgs, StringList};
+// Modified for Wafer: construct target config keys in the active tool namespace.
 use crate::core::compiler::{BuildOutput, LibraryPath, LinkArgTarget};
 use crate::util::CargoResult;
 use serde::Deserialize;
@@ -98,7 +99,7 @@ pub(super) fn get_target_applies_to_host(gctx: &GlobalContext) -> CargoResult<bo
 pub(super) fn load_host_triple(gctx: &GlobalContext, triple: &str) -> CargoResult<TargetConfig> {
     if gctx.cli_unstable().host_config {
         let host_triple_prefix = format!("host.{}", triple);
-        let host_triple_key = ConfigKey::from_str(&host_triple_prefix);
+        let host_triple_key = gctx.config_key(Some(&host_triple_prefix));
         let host_prefix = match gctx.get_cv(&host_triple_key)? {
             Some(_) => host_triple_prefix,
             None => "host".to_string(),
@@ -126,7 +127,7 @@ fn load_config_table(gctx: &GlobalContext, prefix: &str) -> CargoResult<TargetCo
     let rustdocflags: OptValue<StringList> = gctx.get(&format!("{prefix}.rustdocflags"))?;
     let linker: OptValue<ConfigRelativePath> = gctx.get(&format!("{prefix}.linker"))?;
     // Links do not support environment variables.
-    let target_key = ConfigKey::from_str(prefix);
+    let target_key = gctx.config_key(Some(prefix));
     let links_overrides = match gctx.get_table(&target_key)? {
         Some(links) => parse_links_overrides(&target_key, links.val)?,
         None => BTreeMap::new(),

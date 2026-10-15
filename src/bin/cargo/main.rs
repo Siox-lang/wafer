@@ -39,7 +39,11 @@ fn main() {
             let mut gctx = context().expect("already loaded without errors");
             cli::cli(&mut gctx)
         })
-        .var("CARGO_COMPLETE");
+        .var(if env!("CARGO_BIN_NAME") == "wafer" {
+            "WAFER_COMPLETE"
+        } else {
+            "CARGO_COMPLETE"
+        });
         if completer
             .try_complete(args, current_dir.as_deref())
             .unwrap_or_else(|e| {
@@ -51,7 +55,9 @@ fn main() {
         }
     }
 
-    let result = if let Some(lock_addr) = cargo::ops::fix_get_proxy_lock_addr() {
+    let result = if !gctx.is_wafer()
+        && let Some(lock_addr) = cargo::ops::fix_get_proxy_lock_addr()
+    {
         cargo::ops::fix_exec_rustc(&gctx, &lock_addr).map_err(|e| CliError::from(e))
     } else {
         let _token = cargo::util::job::setup();
@@ -75,7 +81,7 @@ fn context() -> cargo::CargoResult<GlobalContext> {
 fn setup_logger() -> Option<ChromeFlushGuard> {
     use tracing_subscriber::prelude::*;
 
-    let env = tracing_subscriber::EnvFilter::from_env("CARGO_LOG");
+    let env = tracing_subscriber::EnvFilter::from_env(tool_env("LOG"));
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_timer(tracing_subscriber::fmt::time::Uptime::default())
         .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
@@ -90,6 +96,10 @@ fn setup_logger() -> Option<ChromeFlushGuard> {
     registry.init();
     tracing::trace!(start = jiff::Timestamp::now().to_string());
     profile_guard
+}
+
+fn tool_env(suffix: &str) -> String {
+    format!("{}_{suffix}", env!("CARGO_BIN_NAME").to_uppercase())
 }
 
 #[cfg(target_has_atomic = "64")]
@@ -107,9 +117,9 @@ where
 {
     #![allow(clippy::disallowed_methods)]
 
-    if env_to_bool(std::env::var_os("CARGO_LOG_PROFILE").as_deref()) {
+    if env_to_bool(std::env::var_os(tool_env("LOG_PROFILE")).as_deref()) {
         let capture_args =
-            env_to_bool(std::env::var_os("CARGO_LOG_PROFILE_CAPTURE_ARGS").as_deref());
+            env_to_bool(std::env::var_os(tool_env("LOG_PROFILE_CAPTURE_ARGS")).as_deref());
         let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
             .include_args(capture_args)
             .build();
