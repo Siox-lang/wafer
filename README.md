@@ -48,7 +48,10 @@ build commands remain disabled. Git packages use
 `Wafer.toml`, including nested packages and inherited workspace metadata.
 Registries and unadapted source replacements are rejected before loading them;
 disabled optional transitive dependencies retain Cargo's normal feature selection
-and are not fetched. Builds, source-file fingerprinting, packaging and update/fetch
+and are not fetched. Cargo's existing source walker now uses Wafer.toml/Wafer.lock
+for Git selection, nested package boundaries and include/exclude rules. Its
+source-level last-modified fingerprint follows those same selected files.
+Compiler dep-info and build-unit fingerprints, builds, packaging and update/fetch
 commands remain unadapted.
 
 The compiler adapter API selects `SIOXC`, then `build.sioxc` (including
@@ -69,7 +72,8 @@ Full metadata comparisons and the Cargo reference native build additionally
 need `WAFER_TEST_RUSTC` pointing to the actual Rust1.90 compiler:
 `cargo test -p cargo --test wafer_metadata -- --ignored`.
 
-Adapter validation: 21 executable CLI/Git/metadata tests, one actual Sioxc probe integration
+Adapter validation: 21 executable CLI/Git/metadata tests, four source-tracking
+regressions covering both tools, one actual Sioxc probe integration
 test and 147 library tests (including 143 upstream Cargo tests and the explicitly
 enabled native compiler-selection test) pass, along with formatting and strict
 relevant-target Clippy. Metadata graphs/features match Cargo, Git pins are

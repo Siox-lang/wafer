@@ -265,3 +265,27 @@ Final rerun3784416 exited/success/0, peak182718464 bytes, with the same169
 passing tests, fmt/strict Clippy and unchanged graph. Native test now forwards
 the actual verification host PATH instead of assuming Linux linker directories.
 This is the verified source state for the local platform/metadata commit.
+
+## 2026-10-15 — Codex: source tracking uses the active manifest and lockfile
+
+Own sources/path.rs source-file enumeration and its source-level freshness
+inputs, plus focused path/Git source tests/docs. Reuse the existing walker,
+Git-index traversal, include/exclude matching and last-modified fingerprint;
+replace only Rust manifest/lockfile assumptions with the existing active-tool
+names. Cover tracked Wafer manifests, nested package boundaries, Git ignores,
+untracked lockfiles and source freshness without adding another cache engine.
+Keep upstream Cargo behavior as a tested reference. This does not enable
+packaging, compiler dep-info, build-unit fingerprints or Siox compilation.
+
+Source-tracking gate siox-job-3000-1792077046976533411-3791613.service finished
+exited/success/0, peak1223118848 bytes. All173 selected tests pass:21 CLI/Git/
+metadata,4 source API regressions exercising both Cargo and Wafer,1 actual
+Sioxc integration and147 library tests. Fmt/strict relevant-target Clippy pass;
+AST graph8717 nodes/19743 edges. Verified filesystem and tracked-Git selection,
+include/exclude preservation of active root manifests/locks, tracked hidden
+files, ignored/generated/nested-package exclusion, untracked-vs-tracked lock
+handling and source-level freshness on real file timestamp changes/additions.
+No new cache, compiler mock or dependency was added. Approximate integration
+estimate24%; native build-unit planning/compiler/artifact/dep-info contracts
+remain the next substantial work. Windows/macOS and full upstream integration
+suite remain unverified; compiler full gate remains separate and unwaived.

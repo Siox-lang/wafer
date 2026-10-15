@@ -43,7 +43,7 @@ pub struct PathSource<'gctx> {
 }
 
 impl<'gctx> PathSource<'gctx> {
-    /// Invoked with an absolute path to a directory that contains a `Cargo.toml`.
+    /// Invoked with an absolute path to a directory that contains the active manifest.
     ///
     /// This source will only return the package at precisely the `path`
     /// specified, and it will be an error if there's not a package at `path`.
@@ -572,7 +572,7 @@ fn _list_files(pkg: &Package, gctx: &GlobalContext) -> CargoResult<Vec<PathEntry
     let root = pkg.root();
     let no_include_option = pkg.manifest().include().is_empty();
     let git_repo = if no_include_option {
-        discover_gix_repo(root)?
+        discover_gix_repo(root, gctx)?
     } else {
         None
     };
@@ -618,7 +618,7 @@ fn _list_files(pkg: &Package, gctx: &GlobalContext) -> CargoResult<Vec<PathEntry
         };
 
         let rel = relative_path.as_os_str();
-        if rel == "Cargo.lock" || rel == "Cargo.toml" {
+        if rel == gctx.lockfile_filename() || rel == gctx.manifest_filename() {
             return true;
         }
 
@@ -637,9 +637,9 @@ fn _list_files(pkg: &Package, gctx: &GlobalContext) -> CargoResult<Vec<PathEntry
 }
 
 /// Returns [`Some(gix::Repository)`](gix::Repository) if the discovered repository
-/// (searched upwards from `root`) contains a tracked `<root>/Cargo.toml`.
+/// (searched upwards from `root`) contains a tracked package manifest.
 /// Otherwise, the caller should fall back on full file list.
-fn discover_gix_repo(root: &Path) -> CargoResult<Option<gix::Repository>> {
+fn discover_gix_repo(root: &Path, gctx: &GlobalContext) -> CargoResult<Option<gix::Repository>> {
     let repo = match gix::ThreadSafeRepository::discover(root) {
         Ok(repo) => repo.to_thread_local(),
         Err(e) => {
@@ -672,12 +672,12 @@ fn discover_gix_repo(root: &Path) -> CargoResult<Option<gix::Repository>> {
     };
     let manifest_path = gix::path::join_bstr_unix_pathsep(
         gix::path::to_unix_separators_on_windows(gix::path::into_bstr(repo_relative_path)),
-        "Cargo.toml",
+        gctx.manifest_filename(),
     );
     if index.entry_index_by_path(&manifest_path).is_ok() {
         return Ok(Some(repo));
     }
-    // Package Cargo.toml is not in git, don't use git to guide our selection.
+    // An untracked package manifest cannot anchor Git-guided selection.
     Ok(None)
 }
 
@@ -736,13 +736,13 @@ fn list_files_gix(
     for item in repo
         .dirwalk_iter(index.clone(), pathspec, Default::default(), options)?
         .filter(|res| {
-            // Don't include Cargo.lock if it is untracked. Packaging will
+            // Don't include the active lockfile if it is untracked. Packaging will
             // generate a new one as needed.
             // Also don't include untrackable directory entries, like FIFOs.
             res.as_ref().map_or(true, |item| {
                 item.entry.disk_kind != Some(gix::dir::entry::Kind::Untrackable)
                     && !(item.entry.status == Status::Untracked
-                        && item.entry.rela_path == "Cargo.lock")
+                        && item.entry.rela_path == gctx.lockfile_filename())
             })
         })
         .map(|res| {
@@ -788,10 +788,10 @@ fn list_files_gix(
     {
         let (rela_path, kind, maybe_plain_text_symlink) = item?;
         let file_path = root.join(gix::path::from_bstr(rela_path));
-        if file_path.file_name().and_then(|name| name.to_str()) == Some("Cargo.toml") {
+        if file_path.file_name().and_then(|name| name.to_str()) == Some(gctx.manifest_filename()) {
             // Keep track of all sub-packages found and also strip out all
             // matches we've found so far. Note, though, that if we find
-            // our own `Cargo.toml`, we keep going.
+            // our own manifest, we keep going.
             let path = file_path.parent().unwrap();
             if path != pkg_path {
                 debug!("subpackage found: {}", path.display());
@@ -884,7 +884,7 @@ fn list_files_walk(
             }
 
             // Don't recurse into any sub-packages that we have.
-            if !at_root && path.join("Cargo.toml").exists() {
+            if !at_root && path.join(gctx.manifest_filename()).exists() {
                 return false;
             }
 

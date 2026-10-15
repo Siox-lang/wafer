@@ -8,8 +8,10 @@
   honor offline/locked/frozen and reject registry access before connections.
 - [x] Produce full metadata through Cargo's existing graph/feature resolver using
   actual Sioxc host facts; conservatively reuse path/Git lock resolutions.
+- [x] Select source/freshness inputs through Cargo's existing filesystem/Git walker
+  with active manifest/lock names, nested boundaries and include/exclude rules.
 - Adapt external commands and remaining compiler/registry environment contracts.
-- Adapt source-file enumeration/fingerprints for future builds.
+- Adapt compiler dep-info and build-unit fingerprints for Siox builds.
 - Wire Sioxc version/native-target/artifact-name queries into Cargo planning;
   extend capabilities as the compiler provides compiled-library/dep-info contracts.
 - Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
@@ -23,7 +25,8 @@
 This is a new integration effort, not the earlier standalone Wafer's60% estimate.
 Copying upstream functionality does not prove it works with Siox.
 
-Verified adapter: 21 executable CLI/Git/metadata tests, one actual Sioxc probe integration,
+Verified adapter: 21 executable CLI/Git/metadata tests, four source-tracking
+regressions for both tools, one actual Sioxc probe integration,
 147 library tests (143 upstream, native selection explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
 Cargo-driven Siox compilation and compiled dependency libraries remain
