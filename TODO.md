@@ -16,12 +16,15 @@
   `build --unit-graph` CLI planning; preserve Rust std/MSRV and reject unsupported options.
 - [x] Decode actual compiler-owned Sioxc dependency sidecars into Cargo's shared
   encoded input format; verify rebasing, aliases and corruption handling via native API tests.
+- [x] Select configured Sioxc flags through Cargo's shared precedence and unit identity;
+  verify encoded/plain environments, config arrays, native cfg and host isolation.
 - Adapt external commands and remaining compiler/registry environment contracts.
 - Integrate dependency-sidecar collection and build-unit fingerprints with Siox execution.
   Include the actual compiler/ABI-feature identity, not just its semantic version:
   embedded core/runtime and default vs bitpack builds can differ at the same version.
 - Integrate Sioxc execution with the shared runner; wire actual compiler artifact
-  names and configured Sioxc flags without Rust crate formats.
+  names and selected Sioxc flags without Rust crate formats. Validate build-owned
+  output/query options before constructing an executing command.
 - Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
 - Compile/reuse Siox dependencies with version-isolated identities and metadata.
 - Adapt native test discovery/batching and simulation/structural top selection.
@@ -35,7 +38,7 @@ Copying upstream functionality does not prove it works with Siox.
 
 Verified adapter: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions for both tools, one actual Sioxc probe integration,
-156 library tests (143 upstream, native selection/planning/dep-info explicitly enabled), formatting
+160 library tests (143 upstream, native selection/planning/dep-info explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
 Cargo-driven Siox compilation and compiled dependency libraries remain
 unsupported, not silently delegated to Rust. Compiler query

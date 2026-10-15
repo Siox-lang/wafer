@@ -74,8 +74,16 @@ Sioxc context and the explicit unit-graph CLI prints that plan. Native acceptanc
 covers versioned library units, features, profiles and target filters through
 Cargo's existing planner and host-unit deduplication. Rust std/MSRV handling
 remains Rust-specific, and Sioxc contexts cannot enter the Rust-only runner.
-Execution, configured Sioxc flags and artifact/dep-info adapters still need
-integration, so normal build/check/test execution remains disabled.
+Configured Sioxc flags use Cargo's existing precedence: `WAFER_ENCODED_SIOXCFLAGS`
+(unit-separator encoded), then `SIOXCFLAGS` (space separated), then the native
+`target.<host>.sioxcflags` plus matching `target.'cfg(...)'.sioxcflags`, then
+`build.sioxcflags`. Typed configuration environment keys use `WAFER_`, including
+`WAFER_BUILD_SIOXCFLAGS`; arrays merge according to Cargo's existing rules.
+Explicit `--target <host>` retains Cargo's separate host-artifact flag handling.
+Rust flag inputs do not configure Sioxc, and selected Siox flags participate in
+the shared unit identity. This is option selection, not compiler execution.
+Execution and artifact/dep-info collection still need integration, so normal
+build/check/test execution remains disabled.
 Compiled-library formats are not emulated.
 
 Embedded users can construct a sandboxed Wafer context with
@@ -97,15 +105,15 @@ the actual Siox std checkout:
 
 Adapter validation: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions covering both tools, one actual Sioxc probe integration
-test and 156 library tests (including 143 upstream Cargo tests and the explicitly
+test and 160 library tests (including 143 upstream Cargo tests and the explicitly
 enabled native compiler-selection and shared-planning tests) pass, along with
 formatting and strict relevant-target Clippy. Metadata/unit graphs and features match Cargo, Git pins
 are retained, and the reference Cargo binary still builds and runs a native path
 dependency project. This is not Cargo-driven Siox build support. The full
 upstream Cargo integration suite is not yet validated. The
 local compiler query branch passed its Rust/native/query tests but its full
-default and bitpack corpora each have five failures despite all853 Rust tests
-passing; it remains uncommitted
+default and bitpack corpora each have five failures despite its864 default and843
+bitpack Rust tests passing; it remains uncommitted
 under the compiler house gate.
 
 Preserve upstream LICENSE-MIT/LICENSE-APACHE and applicable third-party notices.

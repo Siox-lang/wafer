@@ -1,5 +1,6 @@
 //! Platform facts needed by Cargo's shared dependency/feature resolver.
 
+use super::build_context::{Flags, extra_args};
 use super::{BuildOutput, CompileKind, RustcTargetData};
 use crate::core::{Dependency, Workspace};
 use crate::util::{CargoResult, Sioxc, interning::InternedString};
@@ -50,18 +51,43 @@ impl UnitTargetData for RustcTargetData<'_> {
 pub struct SioxcTargetData {
     compiler: Sioxc,
     host: InternedString,
-    unit_options: UnitCompilerOptions,
+    host_options: UnitCompilerOptions,
+    target_options: UnitCompilerOptions,
 }
 
 impl SioxcTargetData {
     pub fn new(ws: &Workspace<'_>, requested: &[CompileKind]) -> CargoResult<Self> {
         let compiler = ws.gctx().load_sioxc()?;
         let host = compiler.host.as_str().into();
+        let options = |kind| -> CargoResult<UnitCompilerOptions> {
+            Ok(UnitCompilerOptions {
+                compiler_flags: extra_args(
+                    ws.gctx(),
+                    requested,
+                    &compiler.host,
+                    Some(&compiler.host_cfg),
+                    kind,
+                    Flags::Sioxc,
+                )?
+                .into(),
+                ..UnitCompilerOptions::default()
+            })
+        };
+        let target_options = options(CompileKind::Target(super::CompileTarget::new(
+            &compiler.host,
+        )?))?;
+        let host_options =
+            if requested == [CompileKind::Host] && ws.gctx().target_applies_to_host()? {
+                // Cargo canonicalizes native target units to host units without copying their options.
+                target_options.clone()
+            } else {
+                options(CompileKind::Host)?
+            };
         let mut data = Self {
             compiler,
             host,
-            // shortcut: execution/configured Sioxc flags are gated; adapt before enabling builds.
-            unit_options: UnitCompilerOptions::default(),
+            host_options,
+            target_options,
         };
         for kind in requested
             .iter()
@@ -81,8 +107,11 @@ impl SioxcTargetData {
 }
 
 impl UnitTargetData for SioxcTargetData {
-    fn unit_options(&self, _kind: CompileKind) -> UnitCompilerOptions {
-        self.unit_options.clone()
+    fn unit_options(&self, kind: CompileKind) -> UnitCompilerOptions {
+        match kind {
+            CompileKind::Host => self.host_options.clone(),
+            CompileKind::Target(_) => self.target_options.clone(),
+        }
     }
 }
 

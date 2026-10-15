@@ -16,6 +16,7 @@ mod target_info;
 pub use self::target_info::{
     FileFlavor, FileType, RustDocFingerprint, RustcTargetData, TargetInfo,
 };
+pub(super) use self::target_info::{Flags, extra_args};
 
 /// The build context, containing complete information needed for a build task
 /// before it gets started.

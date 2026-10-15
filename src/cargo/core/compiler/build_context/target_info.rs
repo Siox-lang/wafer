@@ -6,6 +6,7 @@
 //! * [`RustcTargetData::dep_platform_activated`] to check if platform is activated.
 //! * [`RustcTargetData::info`] to get a [`TargetInfo`] for an in-depth query.
 //! * [`TargetInfo::rustc_outputs`] to get a list of supported file types.
+// Modified for Wafer: share compiler flag precedence without interpreting Siox as Rust.
 
 use crate::core::compiler::apply_env_config;
 use crate::core::compiler::{BuildRunner, CompileKind, CompileMode, CompileTarget, CrateType};
@@ -22,6 +23,9 @@ use std::collections::hash_map::{Entry, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::{self, FromStr};
+
+#[cfg(test)]
+mod flags_tests;
 
 /// Information about the platform target gleaned from querying rustc.
 ///
@@ -719,11 +723,12 @@ fn output_err_info(cmd: &ProcessBuilder, stdout: &str, stderr: &str) -> String {
     result
 }
 
-/// Compiler flags for either rustc or rustdoc.
+/// Compiler-specific keys using the same configuration precedence.
 #[derive(Debug, Copy, Clone)]
-enum Flags {
+pub(crate) enum Flags {
     Rust,
     Rustdoc,
+    Sioxc,
 }
 
 impl Flags {
@@ -731,6 +736,7 @@ impl Flags {
         match self {
             Flags::Rust => "rustflags",
             Flags::Rustdoc => "rustdocflags",
+            Flags::Sioxc => "sioxcflags",
         }
     }
 
@@ -738,6 +744,7 @@ impl Flags {
         match self {
             Flags::Rust => "RUSTFLAGS",
             Flags::Rustdoc => "RUSTDOCFLAGS",
+            Flags::Sioxc => "SIOXCFLAGS",
         }
     }
 }
@@ -767,7 +774,7 @@ impl Flags {
 /// necessary to retain backwards compatibility with older versions of Cargo.
 ///
 /// Rules above also applies to rustdoc. Just the key would be `rustdocflags`/`RUSTDOCFLAGS`.
-fn extra_args(
+pub(crate) fn extra_args(
     gctx: &GlobalContext,
     requested_kinds: &[CompileKind],
     host_triple: &str,
@@ -817,7 +824,11 @@ fn extra_args(
 fn rustflags_from_env(gctx: &GlobalContext, flags: Flags) -> Option<Vec<String>> {
     // First try CARGO_ENCODED_RUSTFLAGS from the environment.
     // Prefer this over RUSTFLAGS since it's less prone to encoding errors.
-    if let Ok(a) = gctx.get_env(format!("CARGO_ENCODED_{}", flags.as_env())) {
+    let prefix = match flags {
+        Flags::Sioxc => "WAFER",
+        Flags::Rust | Flags::Rustdoc => "CARGO",
+    };
+    if let Ok(a) = gctx.get_env(format!("{prefix}_ENCODED_{}", flags.as_env())) {
         if a.is_empty() {
             return Some(Vec::new());
         }
@@ -868,6 +879,7 @@ fn rustflags_from_target(
                         .rustflags
                         .as_ref()
                         .map(|rustflags| (key, &rustflags.val)),
+                    Flags::Sioxc => cfg.sioxcflags.as_ref().map(|flags| (key, &flags.val)),
                     // `target.cfg(…).rustdocflags` is currently not supported.
                     Flags::Rustdoc => None,
                 }
@@ -895,6 +907,7 @@ fn rustflags_from_host(
     let target_cfg = gctx.host_cfg_triple(host_triple)?;
     let list = match flag {
         Flags::Rust => &target_cfg.rustflags,
+        Flags::Sioxc => &target_cfg.sioxcflags,
         Flags::Rustdoc => {
             // host.rustdocflags is not a thing, since it does not make sense
             return Ok(None);
@@ -911,6 +924,7 @@ fn rustflags_from_build(gctx: &GlobalContext, flag: Flags) -> CargoResult<Option
     let list = match flag {
         Flags::Rust => &build.rustflags,
         Flags::Rustdoc => &build.rustdocflags,
+        Flags::Sioxc => &build.sioxcflags,
     };
     Ok(list.as_ref().map(|l| l.as_slice().to_vec()))
 }

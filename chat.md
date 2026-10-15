@@ -444,3 +444,46 @@ semantic gate4008321. Commit only the scoped reader/encoding/tests/docs now;
 no compiler commit or push. Peer4015543 also ended: its separate siox-conv
 corpora passed, but CI_EXIT=1 from missing type_head_key documentation. That
 does not validate or waive the refreshed query worktree's compiler gate.
+
+## 2026-10-15 — Codex: compiler options through Cargo's shared precedence
+
+Own target_info's existing flag collector, configuration flag fields, Sioxc
+platform options and their focused tests. Reuse Cargo's encoded-env/plain-env/
+target-triple-and-cfg/build ordering for sioxcflags; do not implement another
+configuration resolver or apply Rust flags to Sioxc. Keep host-kind handling
+and shared Rc options intact. Test options in actual shared Sioxc unit planning,
+but do not claim execution or blindly pass build-owned options through a new
+runner. Query worktree full CI4104023 is live separately; only its source is
+frozen, and no second heavy gate may compete with it.
+
+Flag implementation is now frozen for its complete fork gate. Exec session57992
+waits on the actual SubState=running of query CI4104023, then launches fmt,
+all library/native tests plus the five integration targets, strict Clippy and
+AST refresh. Session42420 was only an unlaunched local wait shell; replaced its
+is-active predicate because RemainAfterExit services can remain active after
+success. No live verification or peer was stopped. Resume57992 for the eventual
+unit/log, inspect that unit to terminal, and fix any real failures before commit.
+
+Before the queued gate launched, inspection of traverse_and_share identified
+that native target units normalize to Host while retaining their Rc options.
+Cancelled only the unlaunched local wait shell57992 (peer CI remains live),
+then made implicit-host options share the selected target allocation when
+Cargo's target-applies-to-host rules make them identical. The new actual shared
+planner test checks pointer sharing rather than merely matching strings.
+Queue the complete fork gate again for this corrected source; no prior flag
+gate pass or compiler gate success is claimed.
+
+Flag gate siox-job-3000-1792084980447142578-4131813.service finished
+exited/success/0, peak1536790528 bytes:160 library tests and28 integrations
+pass (188 total), including all actual Sioxc/native selection/planning/sidecar
+tests and Cargo's reference native build/run. Encoded/plain/config precedence,
+array merging, explicit empty flags, malformed settings, native platform cfg,
+host-kind isolation and shared option pointers pass. Fmt/strict relevant-target
+Clippy and AST update pass (8781 nodes/19929 edges). Scoped integration estimate
+34%; execution, actual compiler/ABI cache identity, artifacts and reusable library
+metadata/linking remain. No new dependencies, compiler commit or push.
+
+Refreshed query compiler CI4104023 finished exit1, peak1612701696 bytes.
+Fmt, Phase1 artifact check, frontend check/Clippy, build,864 default Rust tests,
+843 bitpack Rust tests and all-target/all-feature Clippy passed. Both corpora
+are241/246 on the same five baseline cases; preserve the compiler WIP locally.

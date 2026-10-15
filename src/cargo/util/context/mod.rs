@@ -2867,6 +2867,7 @@ pub struct CargoBuildConfig {
     pub target: Option<BuildTargetConfig>,
     pub jobs: Option<JobsConfig>,
     pub rustflags: Option<StringList>,
+    pub sioxcflags: Option<StringList>,
     pub rustdocflags: Option<StringList>,
     pub rustc_wrapper: Option<ConfigRelativePath>,
     pub rustc_workspace_wrapper: Option<ConfigRelativePath>,

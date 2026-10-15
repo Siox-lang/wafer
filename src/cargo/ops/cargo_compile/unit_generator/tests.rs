@@ -254,6 +254,36 @@ fn rust_unit_planning_preserves_configured_flags_and_link_overrides() {
 }
 
 #[test]
+#[ignore = "requires actual WAFER_TEST_SIOXC"]
+fn actual_sioxc_units_share_selected_compiler_options_without_rust_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fixture(root);
+    write(
+        root,
+        ".wafer/config.toml",
+        "[build]\nsioxcflags=['--debug']\nrustflags=['must-not-apply']\nrustdocflags=['must-not-apply']\n",
+    );
+    let context = context(root, true);
+    let ws = Workspace::new(&root.join("Wafer.toml"), &context).unwrap();
+    let mut options = CompileOptions::new(&context, UserIntent::Build).unwrap();
+    options.filter = CompileFilter::lib_only();
+    let interner = UnitInterner::new();
+    let bcx = create_sioxc_bcx(&ws, &options, &interner).unwrap();
+    for unit in bcx.unit_graph.keys() {
+        let selected = bcx.target_data.unit_options(unit.kind);
+        assert_eq!(unit.rustflags.as_ref(), ["--debug"]);
+        assert!(unit.rustdocflags.is_empty());
+        assert!(unit.links_overrides.is_empty());
+        assert!(std::rc::Rc::ptr_eq(
+            &unit.rustflags,
+            &selected.compiler_flags
+        ));
+    }
+    assert!(!root.join("target/debug").exists());
+}
+
+#[test]
 #[ignore = "requires actual WAFER_TEST_SIOXC and WAFER_TEST_RUSTC"]
 fn shared_context_enforces_rust_msrv_only_for_the_rust_compiler() {
     let dir = tempfile::tempdir().unwrap();

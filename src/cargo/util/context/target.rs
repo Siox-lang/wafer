@@ -1,5 +1,5 @@
 use super::{CV, ConfigKey, ConfigRelativePath, GlobalContext, OptValue, PathAndArgs, StringList};
-// Modified for Wafer: construct target config keys in the active tool namespace.
+// Modified for Wafer: active tool config keys and compiler-specific flag fields.
 use crate::core::compiler::{BuildOutput, LibraryPath, LinkArgTarget};
 use crate::util::CargoResult;
 use serde::Deserialize;
@@ -14,6 +14,7 @@ use std::rc::Rc;
 pub struct TargetCfgConfig {
     pub runner: OptValue<PathAndArgs>,
     pub rustflags: OptValue<StringList>,
+    pub sioxcflags: OptValue<StringList>,
     pub linker: OptValue<ConfigRelativePath>,
     // This is here just to ignore fields from normal `TargetConfig` because
     // all `[target]` tables are getting deserialized, whether they start with
@@ -29,6 +30,8 @@ pub struct TargetConfig {
     pub runner: OptValue<PathAndArgs>,
     /// Additional rustc flags to pass.
     pub rustflags: OptValue<StringList>,
+    /// Additional Sioxc flags; separate from Rust's flags.
+    pub sioxcflags: OptValue<StringList>,
     /// Additional rustdoc flags to pass.
     pub rustdocflags: OptValue<StringList>,
     /// The path of the linker for this target.
@@ -124,6 +127,7 @@ fn load_config_table(gctx: &GlobalContext, prefix: &str) -> CargoResult<TargetCo
     // environment variables would not work.
     let runner: OptValue<PathAndArgs> = gctx.get(&format!("{prefix}.runner"))?;
     let rustflags: OptValue<StringList> = gctx.get(&format!("{prefix}.rustflags"))?;
+    let sioxcflags: OptValue<StringList> = gctx.get(&format!("{prefix}.sioxcflags"))?;
     let rustdocflags: OptValue<StringList> = gctx.get(&format!("{prefix}.rustdocflags"))?;
     let linker: OptValue<ConfigRelativePath> = gctx.get(&format!("{prefix}.linker"))?;
     // Links do not support environment variables.
@@ -135,6 +139,7 @@ fn load_config_table(gctx: &GlobalContext, prefix: &str) -> CargoResult<TargetCo
     Ok(TargetConfig {
         runner,
         rustflags,
+        sioxcflags,
         rustdocflags,
         linker,
         links_overrides: Rc::new(links_overrides),
@@ -151,7 +156,7 @@ fn parse_links_overrides(
         // Skip these keys, it shares the namespace with `TargetConfig`.
         match lib_name.as_str() {
             // `ar` is a historical thing.
-            "ar" | "linker" | "runner" | "rustflags" | "rustdocflags" => continue,
+            "ar" | "linker" | "runner" | "rustflags" | "rustdocflags" | "sioxcflags" => continue,
             _ => {}
         }
         let mut output = BuildOutput::default();
