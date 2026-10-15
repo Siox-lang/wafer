@@ -481,6 +481,7 @@ fn rustc(
                 // Do not track source files in the fingerprint for registry dependencies.
                 is_local,
                 &env_config,
+                fingerprint::DepInfoFormat::Rustc,
             )
             .with_context(|| {
                 internal(format!(
@@ -1026,6 +1027,7 @@ fn rustdoc(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<W
                 // Should we track source file for doc gen?
                 is_local,
                 &env_config,
+                fingerprint::DepInfoFormat::Rustc,
             )
             .with_context(|| {
                 internal(format_args!(

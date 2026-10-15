@@ -54,8 +54,11 @@ disabled optional transitive dependencies retain Cargo's normal feature selectio
 and are not fetched. Cargo's existing source walker now uses Wafer.toml/Wafer.lock
 for Git selection, nested package boundaries and include/exclude rules. Its
 source-level last-modified fingerprint follows those same selected files.
-Compiler dep-info and build-unit fingerprints, builds, packaging and update/fetch
-commands remain unadapted.
+Sioxc dependency sidecars feed Cargo's existing encoded dependency inputs through
+a compiler-specific reader. Actual native acceptance verifies literal filenames,
+package/build-root rebasing, preserved symlink aliases and old-cache preservation
+on malformed input. This does not yet execute Siox builds or decide cache hits;
+build-unit fingerprints, execution, packaging and update/fetch remain unadapted.
 
 The compiler adapter API selects `SIOXC`, then `build.sioxc` (including
 `WAFER_BUILD_SIOXC`), then `sioxc` on PATH. It queries Sioxc's own verbose
@@ -88,17 +91,21 @@ need `WAFER_TEST_RUSTC` pointing to the actual Rust1.90 compiler:
 `cargo test -p cargo --test wafer_metadata -- --ignored`.
 Both compiler paths are also required for the shared planner acceptance:
 `cargo test -p cargo --lib unit_generator::tests -- --ignored`.
+Dependency-sidecar acceptance additionally needs `WAFER_TEST_STD` pointing to
+the actual Siox std checkout:
+`cargo test -p cargo --lib fingerprint::dep_info::tests -- --ignored`.
 
 Adapter validation: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions covering both tools, one actual Sioxc probe integration
-test and 150 library tests (including 143 upstream Cargo tests and the explicitly
+test and 156 library tests (including 143 upstream Cargo tests and the explicitly
 enabled native compiler-selection and shared-planning tests) pass, along with
 formatting and strict relevant-target Clippy. Metadata/unit graphs and features match Cargo, Git pins
 are retained, and the reference Cargo binary still builds and runs a native path
 dependency project. This is not Cargo-driven Siox build support. The full
 upstream Cargo integration suite is not yet validated. The
 local compiler query branch passed its Rust/native/query tests but its full
-default and bitpack corpora each have five failures; it remains uncommitted
+default and bitpack corpora each have five failures despite all853 Rust tests
+passing; it remains uncommitted
 under the compiler house gate.
 
 Preserve upstream LICENSE-MIT/LICENSE-APACHE and applicable third-party notices.

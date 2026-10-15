@@ -404,6 +404,8 @@ use super::custom_build::BuildDeps;
 use super::{BuildContext, BuildRunner, FileFlavor, Job, Unit, Work};
 
 pub use self::dep_info::Checksum;
+// Modified for Wafer: select the actual compiler's input format in the shared translator.
+pub use self::dep_info::DepInfoFormat;
 pub use self::dep_info::parse_dep_info;
 pub use self::dep_info::parse_rustc_dep_info;
 pub use self::dep_info::translate_dep_info;

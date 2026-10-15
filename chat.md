@@ -388,3 +388,59 @@ Final notice/docs check3864417 exited/success/0, peak154460160 bytes:
 fmt --check and AST refresh pass with unchanged graph counts. No executable
 logic changed after semantic gate3859584. This is the source state committed
 for shared build-context and explicit CLI unit-graph planning.
+
+## 2026-10-15 — Codex: consume actual Sioxc dependency sidecars
+
+Own fingerprint/dep_info.rs, its public reader exports, the two translation
+callers and focused real-compiler tests. Decode the compiler-owned single-rule
+Make sidecar and feed Cargo's existing encoded dependency/freshness data; do not
+create another cache engine or pass Siox to Rust. Keep Rust parsing/translation
+behavior unchanged. Preserve Sioxc symlink paths while rebasing package/build
+paths, and reject malformed/incomplete sidecars rather than treating them as
+empty fresh inputs. Use actual Sioxc/native and existing Cargo acceptance.
+Compiler full unit3951596 remains live in the separate query worktree; do not
+edit its source or start a second heavy job until it finishes. Compiler sidecar
+patch remains uncommitted behind its house gate. No build execution or push.
+
+Compiler full3951596 is terminal exit1, peak1612513280 bytes:853 Rust tests
+passed (GNU Make's opt-in case was already exercised explicitly), both corpora
+remain241/246 with the same five baseline failures. Keep compiler uncommitted.
+First fork reader gate4003752 ended101, peak1612075008 bytes:152 library tests
+pass, but the external native fixture imported Cargo's crate-private fingerprint
+module. Move acceptance into that module's tests instead of widening visibility
+solely for testing; remove the unused export and rerun the complete fork gate.
+
+Reader gate siox-job-3000-1792082378540731343-4008321.service finished
+exited/success/0, peak1370693632 bytes. All184 selected tests pass:156 library
+(including all4 explicitly enabled real Sioxc reader/translation/native cases)
+and28 CLI/Git/metadata/source/native integrations. Strict relevant-target Clippy,
+fmt and AST update pass (8771 nodes/19903 edges). Real sidecars round-trip literal
+filenames without fake core files/checksums, package/build roots rebase, malformed
+records preserve the old encoded cache, and symlink/parent-traversal identities
+remain observable. The actual native test executable runs successfully; Cargo's
+reference native build/run remains green. Compiler gate remains separately
+failed on the same five corpus cases; no compiler commit or native Wafer build
+execution is claimed. Scoped Cargo-based integration estimate32%; executor,
+compiler/ABI identity, flags/artifacts, library metadata and full fingerprints
+remain. No push.
+
+Final doc-comment fmt/graph check4024585 exited75 before running because live
+peer PID4015543 owns the verification lock for Claude's full CI in siox-conv.
+All executable changes already passed4008321; only translator documentation
+changed afterward. Queue this small final check behind that exact confirmed
+live PID, preserve its exec session, and commit only after the returned unit
+finishes successfully. Do not stop the peer or bypass its lock.
+
+Queued final-check exec session70436 is live and waiting on peer PID4015543.
+Last read-only inspection confirms that peer is still running its full CI
+(bitpack test phase); no duplicate local verification was launched. Resume
+session70436 to obtain its eventual unit/log, then inspect that unit to terminal
+success before the scoped reader commit. Current fork source stays frozen.
+
+Final check siox-job-3000-1792083718791108408-4046803.service finished
+exited/success/0, peak174989312 bytes: fmt --check and AST refresh pass
+(8771 nodes/19903 edges). No executable logic changed after the184-test
+semantic gate4008321. Commit only the scoped reader/encoding/tests/docs now;
+no compiler commit or push. Peer4015543 also ended: its separate siox-conv
+corpora passed, but CI_EXIT=1 from missing type_head_key documentation. That
+does not validate or waive the refreshed query worktree's compiler gate.
