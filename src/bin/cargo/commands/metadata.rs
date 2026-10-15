@@ -1,4 +1,5 @@
 use cargo::ops::{self, OutputMetadataOptions};
+// Modified for Wafer: do not expose Rust-only compiler metadata for Siox.
 
 use crate::command_prelude::*;
 
@@ -55,6 +56,30 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
     };
 
     let result = ops::output_metadata(&ws, &options)?;
-    gctx.shell().print_json(&result)?;
+    if gctx.is_wafer() {
+        let mut result = serde_json::to_value(&result).map_err(anyhow::Error::from)?;
+        if let Some(packages) = result["packages"].as_array_mut() {
+            for package in packages {
+                if let Some(package) = package.as_object_mut() {
+                    package.remove("edition");
+                    package.remove("rust_version");
+                    if let Some(targets) = package
+                        .get_mut("targets")
+                        .and_then(serde_json::Value::as_array_mut)
+                    {
+                        for target in targets {
+                            if let Some(target) = target.as_object_mut() {
+                                target.remove("edition");
+                                target.remove("crate_types");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        gctx.shell().print_json(&result)?;
+    } else {
+        gctx.shell().print_json(&result)?;
+    }
     Ok(())
 }

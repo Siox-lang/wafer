@@ -1,4 +1,5 @@
 #![allow(clippy::self_named_module_files)] // false positive in `commands/build.rs`
+// Modified for Wafer: share Cargo's CLI implementation with explicit Siox mode.
 
 use cargo::core::features;
 use cargo::core::shell::Shell;
@@ -21,7 +22,7 @@ use crate::command_prelude::*;
 fn main() {
     let _guard = setup_logger();
 
-    let mut gctx = match GlobalContext::default() {
+    let mut gctx = match context() {
         Ok(gctx) => gctx,
         Err(e) => {
             let mut shell = Shell::new();
@@ -35,7 +36,7 @@ fn main() {
         let args = std::env::args_os();
         let current_dir = std::env::current_dir().ok();
         let completer = clap_complete::CompleteEnv::with_factory(|| {
-            let mut gctx = GlobalContext::default().expect("already loaded without errors");
+            let mut gctx = context().expect("already loaded without errors");
             cli::cli(&mut gctx)
         })
         .var("CARGO_COMPLETE");
@@ -60,6 +61,14 @@ fn main() {
     match result {
         Err(e) => cargo::exit_with_error(e, &mut *gctx.shell()),
         Ok(()) => {}
+    }
+}
+
+fn context() -> cargo::CargoResult<GlobalContext> {
+    if env!("CARGO_BIN_NAME") == "wafer" {
+        GlobalContext::for_wafer()
+    } else {
+        GlobalContext::default()
     }
 }
 

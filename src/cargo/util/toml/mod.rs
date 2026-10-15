@@ -1,3 +1,4 @@
+// Modified for Wafer: inherited workspace metadata follows Wafer.toml.
 use annotate_snippets::{Level, Snippet};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -75,6 +76,11 @@ pub fn read_manifest(
         parse_document(&contents).map_err(|e| emit_diagnostic(e.into(), &contents, path, gctx))?;
     let original_toml = deserialize_toml(&document)
         .map_err(|e| emit_diagnostic(e.into(), &contents, path, gctx))?;
+    if gctx.is_wafer() && original_toml._unused_keys.contains("modules") {
+        anyhow::bail!(
+            "Wafer does not support a [modules] table; the library name is its namespace"
+        );
+    }
 
     let mut manifest = (|| {
         let empty = Vec::new();
@@ -976,7 +982,7 @@ fn load_inheritable_fields(
                 .parent()
                 .unwrap()
                 .join(path_to_root)
-                .join("Cargo.toml");
+                .join(gctx.manifest_filename());
             let root_path = paths::normalize_path(&path);
             inheritable_from_path(gctx, root_path)
         }

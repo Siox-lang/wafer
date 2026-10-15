@@ -1,4 +1,5 @@
 use anyhow::{Context as _, anyhow};
+// Modified for Wafer: brand and gate the shared CLI while adapters are incomplete.
 use cargo::core::{CliUnstable, features};
 use cargo::util::context::TermConfig;
 use cargo::{CargoResult, drop_print, drop_println};
@@ -65,6 +66,11 @@ pub fn main(gctx: &mut GlobalContext) -> CliResult {
         // Don't let config errors get in the way of parsing arguments
         let _ = configure_gctx(gctx, &expanded_args, None, global_args, None);
         let version = get_version_string(is_verbose);
+        let version = if gctx.is_wafer() {
+            version.replacen("cargo ", "wafer ", 1)
+        } else {
+            version
+        };
         drop_print!(gctx, "{}", version);
     } else if let Some(code) = expanded_args.get_one::<String>("explain") {
         // Don't let config errors get in the way of parsing arguments
@@ -84,6 +90,11 @@ pub fn main(gctx: &mut GlobalContext) -> CliResult {
                 return Ok(());
             }
         };
+        if gctx.is_wafer()
+            && !(cmd == "locate-project" || (cmd == "metadata" && subcommand_args.flag("no-deps")))
+        {
+            return Err(anyhow::format_err!("Wafer's `{cmd}` adapter is not implemented yet; this bootstrap supports locate-project and metadata --no-deps only").into());
+        }
         let exec = Exec::infer(cmd)?;
         configure_gctx(
             gctx,
@@ -147,6 +158,13 @@ Run with `{literal}cargo -Z{literal:#} {placeholder}[FLAG] [COMMAND]{placeholder
 }
 
 fn print_list(gctx: &GlobalContext, is_verbose: bool) {
+    if gctx.is_wafer() {
+        drop_println!(
+            gctx,
+            "Installed Commands:\n    locate-project\n    metadata (requires --no-deps)"
+        );
+        return;
+    }
     // Maps from commonly known external commands (not builtin to cargo)
     // to their description, for the help page. Reserved for external
     // subcommands that are core within the rust ecosystem (esp ones that
@@ -576,7 +594,12 @@ pub fn cli(gctx: &GlobalContext) -> Command {
             .invalid(style::INVALID)
     };
 
-    Command::new("cargo")
+    let usage = if gctx.is_wafer() {
+        "wafer [OPTIONS] [COMMAND]"
+    } else {
+        usage
+    };
+    let command = Command::new(gctx.tool_name())
         // Subcommands all count their args' display order independently (from 0),
         // which makes their args interspersed with global args. This puts global args last.
         //
@@ -706,7 +729,12 @@ See '<cyan,bold>cargo help</> <cyan><<command>></>' for more information on a sp
             candidates.extend(get_alias_candidates());
             candidates
         }))
-        .subcommands(commands::builtin())
+        .subcommands(commands::builtin());
+    if gctx.is_wafer() {
+        command.help_template("Wafer — Cargo-based Siox project tool (bootstrap)\n\nUsage: {usage}\n\nOptions:\n{options}\n\nSupported Commands:\n    locate-project\n    metadata --no-deps\n\nCompiler and dependency adapters are not implemented yet.\n")
+    } else {
+        command
+    }
 }
 
 fn get_toolchains_from_rustup() -> Vec<String> {

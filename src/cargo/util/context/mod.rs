@@ -162,7 +162,9 @@ pub struct CredentialCacheValue {
 /// Configuration information for cargo. This is not specific to a build, it is information
 /// relating to cargo itself.
 #[derive(Debug)]
+// Modified for Wafer: explicit project mode; no fallback from Siox to rustc.
 pub struct GlobalContext {
+    wafer: bool,
     /// The location of the user's Cargo home directory. OS-dependent.
     home_path: Filesystem,
     /// Information about how to write messages to the shell
@@ -282,6 +284,7 @@ impl GlobalContext {
         };
 
         GlobalContext {
+            wafer: false,
             home_path: Filesystem::new(homedir),
             shell: RefCell::new(shell),
             cwd,
@@ -344,6 +347,28 @@ impl GlobalContext {
             )
         })?;
         Ok(GlobalContext::new(shell, cwd, homedir))
+    }
+
+    pub fn for_wafer() -> CargoResult<GlobalContext> {
+        let mut context = Self::default()?;
+        context.wafer = true;
+        Ok(context)
+    }
+
+    pub fn is_wafer(&self) -> bool {
+        self.wafer
+    }
+
+    pub fn manifest_filename(&self) -> &'static str {
+        if self.wafer {
+            "Wafer.toml"
+        } else {
+            "Cargo.toml"
+        }
+    }
+
+    pub fn tool_name(&self) -> &'static str {
+        if self.wafer { "wafer" } else { "cargo" }
     }
 
     /// Gets the user's Cargo home directory (OS-dependent).
@@ -421,6 +446,11 @@ impl GlobalContext {
 
     /// Gets the path to the `rustc` executable.
     pub fn load_global_rustc(&self, ws: Option<&Workspace<'_>>) -> CargoResult<Rustc> {
+        if self.wafer {
+            anyhow::bail!(
+                "the sioxc compiler adapter is not implemented yet; Wafer will not invoke rustc for Siox projects"
+            );
+        }
         let cache_location =
             ws.map(|ws| ws.build_dir().join(".rustc_info.json").into_path_unlocked());
         let wrapper = self.maybe_get_tool("rustc_wrapper", &self.build_config()?.rustc_wrapper);

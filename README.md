@@ -1,3 +1,34 @@
+# Wafer — isolated Cargo fork
+
+This checkout adapts Cargo for Siox, based on upstream commit
+`840b83a10fb0e039a83f4d70ad032892c287570a` (Rust1.90 branch). It is separate
+from the existing standalone Wafer implementation and is not a finished release.
+The Rust build package/library remain named cargo to keep upstream integration
+and its locked dependency graph intact. The new executable is named wafer.
+
+Siox projects use Wafer.toml and library names directly as namespaces. Bootstrap
+commands are `wafer locate-project` and `wafer metadata --no-deps --format-version 1`.
+For now source target paths must be explicit, e.g. `[lib] name = "vendor"` with
+`path = "src/lib.siox"`. Compilation, dependency resolution, mutation/registry
+commands and source auto-discovery still need adaptation. They are not implied
+by the inherited Cargo help/API or resolver code. See TODO.md and chat.md.
+
+Bootstrap metadata uses Cargo's package/target/workspace shape but omits
+Rust-only edition, rust-version and crate-type fields. It does not claim
+byte-for-byte Rust metadata compatibility. Home/config/environment still use
+the inherited Cargo conventions until Wafer isolation is adapted; the current
+read-only commands do not fetch dependencies or invoke a compiler.
+
+Bootstrap validation: 4 executable CLI tests and 143 upstream Cargo library
+tests pass, along with formatting and strict relevant-target Clippy. The full
+upstream integration suite and Sioxc compilation are not yet validated.
+
+Preserve upstream LICENSE-MIT/LICENSE-APACHE and applicable third-party notices.
+Cargo dependencies include MPL components; actual binary notice/source
+obligations need a distribution audit. No upstream endorsement is implied.
+
+## Upstream Cargo documentation
+
 # Cargo
 
 Cargo downloads your Rust project’s dependencies and compiles your project.

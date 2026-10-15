@@ -1,0 +1,208 @@
+//! Exercise the actual fork executables; no fake compiler or resolver.
+
+use std::{
+    path::{Path, PathBuf},
+    process::{Command, Output},
+};
+
+fn write(root: &Path, path: &str, text: &str) {
+    let path = root.join(path);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+fn cli(binary: &str, root: &Path, args: &[&str]) -> Output {
+    Command::new(binary)
+        .current_dir(root)
+        .env_clear()
+        .env("HOME", root.join("home"))
+        .env("CARGO_HOME", root.join("home/.cargo"))
+        .env("RUSTC", "compiler-must-not-be-executed")
+        .env("RUSTUP_HOME", root.join("missing-rustup"))
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn success(output: Output) -> String {
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+const WAFER: &str = env!("CARGO_BIN_EXE_wafer");
+const CARGO: &str = env!("CARGO_BIN_EXE_cargo");
+
+#[test]
+fn wafer_bootstrap_brands_and_rejects_unadapted_operations_before_side_effects() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(success(cli(WAFER, dir.path(), &["--version"])).starts_with("wafer "));
+    assert!(success(cli(CARGO, dir.path(), &["--version"])).starts_with("cargo "));
+    let help = success(cli(WAFER, dir.path(), &["--help"]));
+    assert!(help.contains("Cargo-based Siox") && help.contains("metadata --no-deps"));
+    assert!(!help.contains("Rust's package manager"));
+    let list = success(cli(WAFER, dir.path(), &["--list"]));
+    assert!(list.contains("locate-project") && !list.contains("publish"));
+    for args in [
+        vec!["build"],
+        vec!["check"],
+        vec!["test"],
+        vec!["metadata"],
+        vec!["fetch"],
+        vec!["update"],
+        vec!["tree"],
+        vec!["clean"],
+        vec!["new", "not-created"],
+        vec!["init"],
+        vec!["search", "siox"],
+    ] {
+        let output = cli(WAFER, dir.path(), &args);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("adapter is not implemented"),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert!(!dir.path().join("target").exists());
+    assert!(!dir.path().join("not-created").exists());
+    assert!(!dir.path().join("Wafer.lock").exists());
+}
+
+#[test]
+fn cargo_and_wafer_locate_their_own_manifests_without_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        "Cargo.toml",
+        "[package]\nname='rust_reference'\n",
+    );
+    write(
+        dir.path(),
+        "src/lib.rs",
+        "not valid Rust; metadata must not compile",
+    );
+    write(dir.path(), "Wafer.toml", "[package]\nname='siox_project'\n");
+    std::fs::create_dir_all(dir.path().join("nested/deep")).unwrap();
+    for (binary, filename) in [(CARGO, "Cargo.toml"), (WAFER, "Wafer.toml")] {
+        let output = success(cli(
+            binary,
+            &dir.path().join("nested/deep"),
+            &["locate-project", "--message-format", "plain"],
+        ));
+        assert_eq!(PathBuf::from(output.trim()), dir.path().join(filename));
+    }
+    let wrong = cli(
+        WAFER,
+        dir.path(),
+        &["locate-project", "--manifest-path", "Cargo.toml"],
+    );
+    let rust_metadata = success(cli(
+        CARGO,
+        dir.path(),
+        &["metadata", "--no-deps", "--format-version", "1"],
+    ));
+    let rust_metadata: serde_json::Value = serde_json::from_str(&rust_metadata).unwrap();
+    assert_eq!(
+        rust_metadata["packages"][0]["targets"][0]["name"],
+        "rust_reference"
+    );
+    assert!(!wrong.status.success());
+    assert!(String::from_utf8_lossy(&wrong.stderr).contains("Wafer.toml"));
+    std::fs::remove_file(dir.path().join("Wafer.toml")).unwrap();
+    let missing = cli(WAFER, dir.path(), &["locate-project"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("could not find `Wafer.toml`"));
+}
+
+#[test]
+fn wafer_metadata_reuses_cargo_with_real_library_names_and_explicit_siox_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        "Wafer.toml",
+        "[package]\nname='controller'\nversion='0.1.0'\n[lib]\nname='vendor'\npath='src/lib.siox'\n[[test]]\nname='smoke'\npath='tests/smoke.siox'\n",
+    );
+    write(
+        dir.path(),
+        "src/lib.siox",
+        "not valid Siox; metadata must not analyze it",
+    );
+    write(dir.path(), "tests/smoke.siox", "also not valid Siox");
+    let output = success(cli(
+        WAFER,
+        dir.path(),
+        &["metadata", "--no-deps", "--format-version", "1"],
+    ));
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert!(json["resolve"].is_null());
+    assert_eq!(json["packages"][0]["name"], "controller");
+    assert!(json["packages"][0].get("edition").is_none());
+    assert!(json["packages"][0].get("rust_version").is_none());
+    let targets = json["packages"][0]["targets"].as_array().unwrap();
+    assert!(targets.iter().any(|target| target["name"] == "vendor"
+        && target["src_path"] == dir.path().join("src/lib.siox").to_str().unwrap()));
+    assert!(targets.iter().any(|target| target["name"] == "smoke"));
+    assert!(
+        targets
+            .iter()
+            .all(|target| target.get("edition").is_none() && target.get("crate_types").is_none())
+    );
+    assert!(!output.contains("vendor::lib"));
+    assert!(!dir.path().join("target").exists());
+    assert!(!dir.path().join("Wafer.lock").exists());
+    write(
+        dir.path(),
+        "Wafer.toml",
+        "[package]\nname='controller'\n[modules]\nvendor='src/lib.siox'\n",
+    );
+    let output = cli(
+        WAFER,
+        dir.path(),
+        &["metadata", "--no-deps", "--format-version", "1"],
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("does not support a [modules] table"));
+}
+
+#[test]
+fn wafer_workspaces_and_inherited_package_metadata_use_wafer_manifests() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        "Wafer.toml",
+        "[workspace]\nmembers=['dies/*']\n[workspace.package]\nversion='1.2.3'\nlicense='MIT'\n",
+    );
+    write(
+        dir.path(),
+        "dies/controller/Wafer.toml",
+        "[package]\nname='controller'\nversion.workspace=true\nlicense.workspace=true\nworkspace='../..'\n[lib]\nname='vendor'\npath='src/lib.siox'\n",
+    );
+    write(
+        dir.path(),
+        "dies/controller/src/lib.siox",
+        "not valid Siox; workspace discovery is compiler independent",
+    );
+    let output = success(cli(
+        WAFER,
+        dir.path(),
+        &["metadata", "--no-deps", "--format-version", "1"],
+    ));
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(json["packages"].as_array().unwrap().len(), 1);
+    assert_eq!(json["packages"][0]["version"], "1.2.3");
+    assert_eq!(json["packages"][0]["license"], "MIT");
+    let location = success(cli(
+        WAFER,
+        &dir.path().join("dies/controller"),
+        &["locate-project", "--workspace", "--message-format", "plain"],
+    ));
+    assert_eq!(
+        PathBuf::from(location.trim()),
+        dir.path().join("Wafer.toml")
+    );
+}

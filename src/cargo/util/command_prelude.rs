@@ -8,7 +8,8 @@ use crate::core::{Edition, Package, Target, TargetKind, Workspace, profiles::Pro
 use crate::ops::lockfile::LOCKFILE_NAME;
 use crate::ops::registry::RegistryOrIndex;
 use crate::ops::{self, CompileFilter, CompileOptions, NewOptions, Packages, VersionControl};
-use crate::util::important_paths::find_root_manifest_for_wd;
+// Modified for Wafer: manifest validation follows the explicit project context.
+use crate::util::important_paths::{find_root_manifest_for_wd, find_root_manifest_named};
 use crate::util::interning::InternedString;
 use crate::util::is_rustup;
 use crate::util::restricted_names;
@@ -1074,8 +1075,13 @@ pub fn root_manifest(manifest_path: Option<&Path>, gctx: &GlobalContext) -> Carg
         // In general, we try to avoid normalizing paths in Cargo,
         // but in this particular case we need it to fix #3586.
         let path = paths::normalize_path(&path);
-        if !path.ends_with("Cargo.toml") && !crate::util::toml::is_embedded(&path) {
-            anyhow::bail!("the manifest-path must be a path to a Cargo.toml file")
+        if !path.ends_with(gctx.manifest_filename())
+            && (gctx.is_wafer() || !crate::util::toml::is_embedded(&path))
+        {
+            anyhow::bail!(
+                "the manifest-path must be a path to a {} file",
+                gctx.manifest_filename()
+            )
         }
         if !path.exists() {
             anyhow::bail!("manifest path `{}` does not exist", manifest_path.display())
@@ -1091,7 +1097,7 @@ pub fn root_manifest(manifest_path: Option<&Path>, gctx: &GlobalContext) -> Carg
         }
         Ok(path)
     } else {
-        find_root_manifest_for_wd(gctx.cwd())
+        find_root_manifest_named(gctx.cwd(), gctx.manifest_filename())
     }
 }
 

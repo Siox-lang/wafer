@@ -1,3 +1,4 @@
+// Modified for Wafer: workspace traversal uses the active manifest filename.
 use std::cell::RefCell;
 use std::collections::hash_map::{Entry, HashMap};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -801,16 +802,20 @@ impl<'gctx> Workspace<'gctx> {
         };
 
         for (path, glob) in &members_paths {
-            self.find_path_deps(&path.join("Cargo.toml"), &root_manifest_path, false)
-                .with_context(|| {
-                    format!(
-                        "failed to load manifest for workspace member `{}`\n\
+            self.find_path_deps(
+                &path.join(self.gctx.manifest_filename()),
+                &root_manifest_path,
+                false,
+            )
+            .with_context(|| {
+                format!(
+                    "failed to load manifest for workspace member `{}`\n\
                         referenced{} by workspace at `{}`",
-                        path.display(),
-                        glob.map(|g| format!(" via `{g}`")).unwrap_or_default(),
-                        root_manifest_path.display(),
-                    )
-                })?;
+                    path.display(),
+                    glob.map(|g| format!(" via `{g}`")).unwrap_or_default(),
+                    root_manifest_path.display(),
+                )
+            })?;
         }
 
         self.find_path_deps(&root_manifest_path, &root_manifest_path, false)?;
@@ -818,7 +823,7 @@ impl<'gctx> Workspace<'gctx> {
         if let Some(default) = default_members_paths {
             for (path, default_member_glob) in default {
                 let normalized_path = paths::normalize_path(&path);
-                let manifest_path = normalized_path.join("Cargo.toml");
+                let manifest_path = normalized_path.join(self.gctx.manifest_filename());
                 if !self.members.contains(&manifest_path) {
                     // default-members are allowed to be excluded, but they
                     // still must be referred to by the original (unfiltered)
@@ -897,7 +902,7 @@ impl<'gctx> Workspace<'gctx> {
                 .map(|d| (d.source_id(), d.package_name()))
                 .filter(|(s, _)| s.is_path())
                 .filter_map(|(s, n)| s.url().to_file_path().ok().map(|p| (p, n)))
-                .map(|(p, n)| (p.join("Cargo.toml"), n))
+                .map(|(p, n)| (p.join(self.gctx.manifest_filename()), n))
                 .collect::<Vec<_>>()
         };
         for (path, name) in candidates {
@@ -2035,7 +2040,7 @@ fn find_workspace_root_with_loader(
             if let Some(ws_config) = roots.get(current) {
                 if !ws_config.is_excluded(manifest_path) {
                     // Add `Cargo.toml` since ws_root is the root and not the file
-                    return Ok(Some(current.join("Cargo.toml")));
+                    return Ok(Some(current.join(gctx.manifest_filename())));
                 }
             }
         }
@@ -2051,11 +2056,13 @@ fn find_workspace_root_with_loader(
 }
 
 fn read_root_pointer(member_manifest: &Path, root_link: &str) -> PathBuf {
-    let path = member_manifest
-        .parent()
-        .unwrap()
-        .join(root_link)
-        .join("Cargo.toml");
+    let path = member_manifest.parent().unwrap().join(root_link).join(
+        if member_manifest.ends_with("Wafer.toml") {
+            "Wafer.toml"
+        } else {
+            "Cargo.toml"
+        },
+    );
     debug!("find_root - pointer {}", path.display());
     paths::normalize_path(&path)
 }
@@ -2078,7 +2085,7 @@ fn find_root_iter<'a>(
                 true
             }
         })
-        .map(|path| path.curr.join("Cargo.toml"))
+        .map(|path| path.curr.join(gctx.manifest_filename()))
         .filter(|ances_manifest_path| ances_manifest_path.exists())
 }
 

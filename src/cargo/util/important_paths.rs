@@ -1,11 +1,16 @@
 use crate::util::errors::CargoResult;
+// Modified for Wafer: reuse ancestor discovery for the Siox manifest filename.
 use cargo_util::paths;
 use std::path::{Path, PathBuf};
 
 /// Finds the root `Cargo.toml`.
 pub fn find_root_manifest_for_wd(cwd: &Path) -> CargoResult<PathBuf> {
-    let valid_cargo_toml_file_name = "Cargo.toml";
-    let invalid_cargo_toml_file_name = "cargo.toml";
+    find_root_manifest_named(cwd, "Cargo.toml")
+}
+
+pub fn find_root_manifest_named(cwd: &Path, name: &str) -> CargoResult<PathBuf> {
+    let valid_cargo_toml_file_name = name;
+    let invalid_cargo_toml_file_name = name.to_ascii_lowercase();
     let mut invalid_cargo_toml_path_exists = false;
 
     for current in paths::ancestors(cwd, None) {
@@ -13,16 +18,18 @@ pub fn find_root_manifest_for_wd(cwd: &Path) -> CargoResult<PathBuf> {
         if manifest.exists() {
             return Ok(manifest);
         }
-        if current.join(invalid_cargo_toml_file_name).exists() {
+        if current.join(&invalid_cargo_toml_file_name).exists() {
             invalid_cargo_toml_path_exists = true;
         }
     }
 
     if invalid_cargo_toml_path_exists {
         anyhow::bail!(
-            "could not find `{}` in `{}` or any parent directory, but found cargo.toml please try to rename it to Cargo.toml",
+            "could not find `{}` in `{}` or any parent directory, but found {} please try to rename it to {}",
             valid_cargo_toml_file_name,
-            cwd.display()
+            cwd.display(),
+            invalid_cargo_toml_file_name,
+            name
         )
     } else {
         anyhow::bail!(
