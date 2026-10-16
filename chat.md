@@ -704,3 +704,72 @@ jobs; not a second scheduler, reusable-library linking or enabled CLI builds.
 Production native command validation/work preparation/artifact collection, full
 execution-input/tool identity, compiled-library metadata/linking and test batching
 remain. No compiler/LLVM edits, new dependencies, compiler gate waiver or push.
+
+## 2026-10-16 — Codex: native work preparation and shared artifact handling
+
+Own compiler/sioxc.rs, its common compiler module callers, runner flag preflight
+and native queue acceptance. Replace test-only command/sidecar preparation with
+production native Work using the existing Executor, diagnostic cache, fingerprint
+translator/invocation anchors and shared link_targets uplift/export logic. Keep
+one queue and no fake Rust diagnostics. Validate configured flags before layouts:
+Wafer owns source, output, dep-info and mode/query flags; reject unknown switches.
+Only the compiler-supported opt0/full-debug profile maps honestly today; do not
+invent rustc -C options or silently promise release/profile parity. Normal CLI
+builds and reusable compiled libraries remain gated. No LLVM/compiler edits,
+dependencies or push; preserve the two verified local commits.
+
+Connect this work to the same high-level BuildRunner::compile rather than leave
+unused preparation functions or export test-only APIs. Add typed compiler hooks
+for backend-specific work/custom-build/doc/root processing, preserving Cargo's
+single recursive unit planner, fingerprint decisions and job queue. Rust keeps
+its existing hooks; native returns real compiler Work and no fabricated rustdoc
+outputs. Keep CLI execution disabled until remaining native input/cache/library
+contracts are complete. Tests must now use production native work, not reproduce
+command construction in their scheduling helper.
+
+Native work gate644862 exited75 before running (contention, no test result).
+Immediate authoritative lock/process checks now show no live holder; retry the
+same full gate. Do not infer compiler/test failure or bypass a live peer.
+
+Gate646684 finished exited/success/0, peak1612689408 bytes:174 library and29
+integration tests pass (203 selected Rust tests), including shared native compile
+entry, explicit source paths/flags, owned-output protection, sidecars, uplift/
+export on dirty/fresh jobs, force rebuilds and unsupported-profile rejection.
+Fmt/strict relevant-target Clippy/AST update pass (8877 nodes/20277 edges).
+Before committing this common-entry refactor, own a small reference acceptance
+extension in tests/wafer_metadata.rs to exercise actual Rust build scripts and
+doctests moved behind the typed hooks. Also strengthen the native artifact
+contract with an executor fault injection after a real compilation (directory
+instead of object), and exercise the high-level compile result for native tests.
+No fake compiler scripts or LLVM changes; rerun the full final gate afterward.
+
+Gate663145 finished exited/success/0, peak1407188992 bytes:203 selected tests,
+including actual Rust custom-build/doctest hooks and native failed-artifact
+invalidation, plus fmt/strict Clippy/AST update8877/20277 pass. Preserve the
+guarded disk-backed TMPDIR when the reference subprocess helper clears its
+environment, so the newly exercised rustdoc also avoids RAM-backed temporary
+outputs on this host. This one-line environment fix is the only executable
+change after663145; repeat the full gate before committing the final state.
+
+Final native-work gate siox-job-3000-1792130029344325485-673312.service finished
+exited/success/0, peak207323136 bytes with warm caches. All203 selected Rust tests
+pass (174 library plus29 integrations; native child/doctest results not counted
+twice), formatting and strict relevant-target Clippy pass, AST update leaves
+8877 nodes/20277 edges unchanged. Earlier cold work gate646684 peaked1612689408
+bytes. No resource limit was raised or bypassed.
+
+Same high-level compile entry now serves Rust and native units via typed work
+hooks; one planner, fingerprint path and scheduler. Native flags/explicit input
+paths, owned-output safety, actual compiler/std, streamed human diagnostics,
+sidecars/invocation anchors, object/test/VCD, dirty/fresh uplift/export and forced
+rebuilds pass. Fault injection after real native codegen proves a directory in
+the artifact slot is rejected and its fingerprint stays invalid. Actual Rust
+custom-build/doctest/timing acceptance verifies moved hooks, not just Rust build
+compilation. No fake Rust queries/diagnostics or compiled-library imports.
+
+Only docs/evidence follow this accepted executable state. Completion estimate52%
+of Cargo-based Wafer integration. CLI builds remain disabled pending complete
+execution-input/external-tool identity, reusable metadata/linking, profile/JSON
+coverage and test batching; native aggregate external dep-info also remains.
+Compiler/corpus WIP retains its separate green-gate restriction. No dependencies,
+LLVM edits or push; preserve main and all unrelated worktrees.

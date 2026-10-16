@@ -27,6 +27,7 @@ fn command(binary: &str, root: &Path, args: &[&str]) -> Command {
     command
         .current_dir(root)
         .env_clear()
+        .env("TMPDIR", std::env::temp_dir())
         .env("HOME", root.join("home"))
         .env("CARGO_HOME", root.join("home/.cargo"))
         .env("WAFER_HOME", root.join("home/.wafer"));
@@ -302,7 +303,16 @@ fn cargo_reference_still_builds_and_runs_through_the_shared_platform_resolver() 
         "dep/Cargo.toml",
         "[package]\nname='dep'\nversion='1.0.0'\n[lib]\nname='vendor'\n",
     );
-    write(root, "dep/src/lib.rs", "pub fn answer() -> u8 { 7 }\n");
+    write(
+        root,
+        "dep/build.rs",
+        "fn main() { println!(\"cargo::rustc-check-cfg=cfg(helper_build)\"); println!(\"cargo::rustc-cfg=helper_build\"); }\n",
+    );
+    write(
+        root,
+        "dep/src/lib.rs",
+        "/// Returns seven.\n/// ```\n/// assert_eq!(vendor::answer(), 7);\n/// ```\n#[cfg(helper_build)]\npub fn answer() -> u8 { 7 }\n",
+    );
     write(
         root,
         "src/main.rs",
@@ -312,7 +322,7 @@ fn cargo_reference_still_builds_and_runs_through_the_shared_platform_resolver() 
     #[allow(clippy::disallowed_methods)]
     let path = std::env::var_os("PATH").expect("native build acceptance needs PATH");
     let built = command(CARGO, root, &["build", "--offline", "--timings"])
-        .env("PATH", path)
+        .env("PATH", &path)
         .output()
         .unwrap();
     assert!(
@@ -339,6 +349,30 @@ fn cargo_reference_still_builds_and_runs_through_the_shared_platform_resolver() 
         String::from_utf8_lossy(&ran.stderr)
     );
     assert!(!root.join("Wafer.lock").exists());
+    let rustdoc = std::path::PathBuf::from(tool("WAFER_TEST_RUSTC"))
+        .with_file_name(format!("rustdoc{}", std::env::consts::EXE_SUFFIX));
+    let docs = command(
+        CARGO,
+        root,
+        &[
+            "test",
+            "--doc",
+            "--offline",
+            "--manifest-path",
+            "dep/Cargo.toml",
+        ],
+    )
+    .env("PATH", &path)
+    .env("RUSTDOC", rustdoc)
+    .output()
+    .unwrap();
+    assert!(
+        docs.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&docs.stdout),
+        String::from_utf8_lossy(&docs.stderr)
+    );
+    assert!(String::from_utf8_lossy(&docs.stdout).contains("1 passed"));
 }
 
 #[test]

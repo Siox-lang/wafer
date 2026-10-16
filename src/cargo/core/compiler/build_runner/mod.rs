@@ -1,13 +1,13 @@
 //! [`BuildRunner`] is the mutable state used during the build process.
-// Modified for Wafer: shared runner state/preparation, with Rust execution kept specialized.
+// Modified for Wafer: one runner pipeline with typed compiler-specific work hooks.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::core::PackageId;
-use crate::core::compiler::compilation::{self, UnitOutput};
-use crate::core::compiler::{self, Unit, artifact};
+use crate::core::compiler::Unit;
+use crate::core::compiler::compilation::UnitOutput;
 use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::CargoResult;
 use anyhow::{Context as _, bail};
@@ -16,15 +16,15 @@ use itertools::Itertools;
 use jobserver::Client;
 
 use super::build_plan::BuildPlan;
-use super::custom_build::{self, BuildDeps, BuildScriptOutputs, BuildScripts};
+use super::custom_build::{BuildDeps, BuildScriptOutputs, BuildScripts};
 use super::fingerprint::{Checksum, Fingerprint};
 use super::job_queue::JobQueue;
 use super::layout::Layout;
 use super::lto::Lto;
 use super::unit_graph::UnitDep;
 use super::{
-    BuildContext, Compilation, CompileKind, CompileMode, CompilerRef, Executor, FileFlavor,
-    RustDocFingerprint, RustcTargetData, UnitTargetData,
+    BuildContext, Compilation, CompileKind, CompileMode, CompilerBackend, CompilerRef, Executor,
+    FileFlavor, RustcTargetData, UnitTargetData,
 };
 
 mod compilation_files;
@@ -99,6 +99,7 @@ impl<'a, 'gctx, T: UnitTargetData> BuildRunner<'a, 'gctx, T> {
         if matches!(bcx.target_data.compiler(), CompilerRef::Sioxc(_)) {
             for unit in bcx.unit_graph.keys() {
                 CompilationFiles::validate_unit(bcx, unit)?;
+                super::sioxc::validate_flags(&unit.rustflags, unit.mode)?;
             }
         }
         // Load up the jobserver that we'll use to manage our parallelism. This
@@ -160,7 +161,7 @@ impl<'a, 'gctx, T: UnitTargetData> BuildRunner<'a, 'gctx, T> {
     }
 }
 
-impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
+impl<'a, 'gctx, T: CompilerBackend<'gctx>> BuildRunner<'a, 'gctx, T> {
     /// Starts compilation, waits for it to finish, and returns information
     /// about the result of compilation.
     ///
@@ -181,7 +182,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         let build_plan = self.bcx.build_config.build_plan;
         self.prepare_units()?;
         self.prepare()?;
-        custom_build::build_map(&mut self)?;
+        T::prepare_runner(&mut self)?;
         self.check_collisions()?;
         self.compute_metadata_for_doc_units();
 
@@ -193,9 +194,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         // any versioning (See https://github.com/rust-lang/cargo/issues/8461).
         // Therefore, we can end up with weird bugs and behaviours if we mix different
         // versions of these files.
-        if self.bcx.build_config.intent.is_doc() {
-            RustDocFingerprint::check_rustdoc_fingerprint(&self)?
-        }
+        T::check_documentation(&self)?;
 
         for unit in &self.bcx.roots {
             let force_rebuild = self.bcx.build_config.force_rebuild;
@@ -249,60 +248,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         // Collect the result of the build into `self.compilation`.
         for unit in &self.bcx.roots {
             self.collect_outputs(unit)?;
-
-            // Collect information for `rustdoc --test`.
-            if unit.mode.is_doc_test() {
-                let mut unstable_opts = false;
-                let mut args = compiler::extern_args(&self, unit, &mut unstable_opts)?;
-                args.extend(compiler::lto_args(&self, unit));
-                args.extend(compiler::features_args(unit));
-                args.extend(compiler::check_cfg_args(unit));
-
-                let script_metas = self.find_build_script_metadatas(unit);
-                if let Some(meta_vec) = script_metas.clone() {
-                    for meta in meta_vec {
-                        if let Some(output) = self.build_script_outputs.lock().unwrap().get(meta) {
-                            for cfg in &output.cfgs {
-                                args.push("--cfg".into());
-                                args.push(cfg.into());
-                            }
-
-                            for check_cfg in &output.check_cfgs {
-                                args.push("--check-cfg".into());
-                                args.push(check_cfg.into());
-                            }
-
-                            for (lt, arg) in &output.linker_args {
-                                if lt.applies_to(&unit.target, unit.mode) {
-                                    args.push("-C".into());
-                                    args.push(format!("link-arg={}", arg).into());
-                                }
-                            }
-                        }
-                    }
-                }
-                args.extend(unit.rustdocflags.iter().map(Into::into));
-
-                use super::MessageFormat;
-                let format = match self.bcx.build_config.message_format {
-                    MessageFormat::Short => "short",
-                    MessageFormat::Human => "human",
-                    MessageFormat::Json { .. } => "json",
-                };
-                args.push("--error-format".into());
-                args.push(format.into());
-
-                self.compilation.to_doc_test.push(compilation::Doctest {
-                    unit: unit.clone(),
-                    args,
-                    unstable_opts,
-                    linker: self.compilation.target_linker(unit.kind).clone(),
-                    script_metas,
-                    env: artifact::get_env(&self, self.unit_deps(unit))?,
-                });
-            }
-
-            super::output_depinfo(&mut self, unit)?;
+            T::finish_root(&mut self, unit)?;
         }
 
         for (script_meta, output) in self.build_script_outputs.lock().unwrap().iter() {

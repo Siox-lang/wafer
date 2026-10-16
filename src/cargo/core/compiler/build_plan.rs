@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use super::build_runner::OutputFile;
-use super::{BuildRunner, CompileKind, CompileMode, Unit};
+// Modified for Wafer: plan structure is shared, compiler-specific preparation stays gated.
+use super::{BuildRunner, CompileKind, CompileMode, Unit, UnitTargetData};
 use crate::core::TargetKind;
 use crate::util::{CargoResult, GlobalContext, internal};
 use cargo_util::ProcessBuilder;
@@ -107,7 +108,11 @@ impl BuildPlan {
         }
     }
 
-    pub fn add(&mut self, build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<()> {
+    pub fn add<T: UnitTargetData>(
+        &mut self,
+        build_runner: &BuildRunner<'_, '_, T>,
+        unit: &Unit,
+    ) -> CargoResult<()> {
         let id = self.plan.invocations.len();
         self.invocation_map.insert(unit.buildkey(), id);
         let deps = build_runner

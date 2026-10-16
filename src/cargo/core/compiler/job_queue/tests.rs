@@ -46,6 +46,10 @@ fn fixture(root: &Path) -> GlobalContext {
                 tool("WAFER_TEST_SIOXC").into_string().unwrap(),
             ),
             ("RUSTC".into(), "must-not-run-rustc".into()),
+            (
+                "WAFER_ENCODED_SIOXCFLAGS".into(),
+                format!("--std\u{1f}{}", tool("WAFER_TEST_STD").to_str().unwrap()),
+            ),
         ]
         .into(),
     );
@@ -119,29 +123,10 @@ fn run(
                 .iter()
                 .map(|dep| runner.outputs(dep).unwrap()[0].path.clone())
                 .collect::<Vec<_>>();
-            let mut command = runner
-                .compilation
-                .compiler_process(unit, true, true)
-                .unwrap();
-            let source = unit.pkg.root().join("src/lib.siox");
-            let raw = output.with_extension("d");
-            command
-                .arg(source)
-                .arg("--std")
-                .arg(tool("WAFER_TEST_STD"))
-                .arg("--out")
-                .arg(&output)
-                .arg("--dep-info")
-                .arg(&raw)
-                .inherit_jobserver(&runner.jobserver);
-            if unit.mode == CompileMode::Test {
-                command.arg("--test");
-            }
-            let encoded = fingerprint::dep_info_loc(&mut runner, unit);
-            let directory = runner.files().fingerprint_dir(unit);
-            let package = unit.pkg.root().to_path_buf();
-            let build = bcx.ws.build_dir().into_path_unlocked();
-            let environment = Arc::clone(bcx.gctx.env_config().unwrap());
+            let executor: Arc<dyn super::super::Executor> = Arc::new(super::super::DefaultExecutor);
+            let work = super::super::sioxc::prepare(&mut runner, unit, &executor)
+                .unwrap()
+                .then(super::super::link_targets(&mut runner, unit, false).unwrap());
             let activity = Arc::clone(&activity);
             let name = unit.pkg.name().to_string();
             job.before(Work::new(move |state| {
@@ -166,28 +151,9 @@ fn run(
                         "second native job never received a token"
                     );
                 }
-                state.running(&command);
-                let timestamp = cargo_util::paths::set_invocation_time(&directory)?;
-                let result = command.exec_with_streaming(
-                    &mut |line| state.stdout(line.into()),
-                    &mut |line| state.stderr(line.into()),
-                    false,
-                );
+                let result = work.call(state);
                 activity.active.fetch_sub(1, Ordering::SeqCst);
-                result?;
-                fingerprint::translate_dep_info(
-                    &raw,
-                    &encoded,
-                    &package,
-                    &package,
-                    &build,
-                    &command,
-                    true,
-                    &environment,
-                    fingerprint::DepInfoFormat::Sioxc,
-                )?;
-                cargo_util::paths::set_file_time_no_err(&encoded, timestamp);
-                Ok(())
+                result
             }));
         } else {
             // Fresh jobs emit directly on the main thread, without bounded-queue deadlock.
@@ -231,9 +197,10 @@ fn actual_native_jobs_share_ordering_tokens_freshness_and_timing_reports() {
             "controller"
         );
         let vcd = root.join("queue.vcd");
+        let executor: Arc<dyn super::super::Executor> = Arc::new(super::super::DefaultExecutor);
         BuildRunner::new(&bcx)
             .unwrap()
-            .dry_run()
+            .compile(&executor)
             .unwrap()
             .target_process(
                 &outputs["controller"],

@@ -30,14 +30,15 @@
   units; verify real inputs, missing/corrupt sidecars and interrupted-job invalidation.
 - [x] Share the actual queue/jobserver/drain paths for native work; verify one/two-job
   limits, ordering, fresh skips, rebuilds, failures/keep-going and both compilers' timings.
+- [x] Use one high-level compile entry with typed compiler work hooks; verify actual
+  Sioxc flags/source paths, sidecars, cached diagnostics, force rebuilds and artifact
+  uplift/export on dirty/fresh jobs. Preserve Rust custom builds and doctests.
 - Adapt external commands and remaining compiler/registry environment contracts.
-- Integrate dependency-sidecar collection and build-unit fingerprints with Siox execution.
-  Track execution environment/selected std and external tools/libraries, not only
+- Complete native build-cache input tracking. Track execution environment/selected
+  std and external tools/libraries, not only
   the already captured compiler binary, before enabling native build-cache reuse.
-- Integrate native work preparation into the high-level shared runner; wire actual compiler artifact
-  names and selected Sioxc flags without Rust crate formats. Validate build-owned
-  output/query options before constructing an executing command.
-- Adapt compilation, dep-info, diagnostics and artifact types; no rustc spoofing.
+- Map remaining native profiles/options and structured diagnostics; no rustc spoofing.
+- Add literal-safe aggregate dep-info for uplifted native artifacts/external build systems.
 - Compile/reuse Siox dependencies with version-isolated identities and metadata.
 - Adapt native test discovery/batching and simulation/structural top selection.
 - Carry project-config/LSP boundary and output safety from the existing Wafer.
@@ -50,8 +51,8 @@ Copying upstream functionality does not prove it works with Siox.
 
 Verified adapter: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions for both tools, two actual Sioxc toolchain integrations,
-171 library tests (143 upstream, native selection/planning/dep-info/process/artifacts/runner/fingerprints/scheduling explicitly enabled), formatting
+174 library tests (143 upstream, native selection/planning/dep-info/process/artifacts/runner/fingerprints/scheduling/work explicitly enabled), formatting
 and strict relevant-target Clippy, including a real Cargo reference native build.
-Cargo-driven Siox compilation and compiled dependency libraries remain
-unsupported, not silently delegated to Rust. Compiler query
+Native compilation is exercised through the shared API; CLI builds and compiled
+dependency libraries remain unsupported, not silently delegated to Rust. Compiler query
 changes remain local until its separate full corpus gate is green.

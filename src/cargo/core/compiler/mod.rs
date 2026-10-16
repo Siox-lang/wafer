@@ -32,6 +32,7 @@
 //! [`ops::cargo_compile::compile`]: crate::ops::compile
 
 pub mod artifact;
+mod backend;
 mod build_config;
 pub(crate) mod build_context;
 mod build_plan;
@@ -51,6 +52,7 @@ mod output_sbom;
 // Modified for Wafer: dependency resolution uses compiler-owned platform facts.
 mod platform_data;
 pub mod rustdoc;
+pub(crate) mod sioxc;
 pub mod standard_lib;
 mod timings;
 mod unit;
@@ -71,6 +73,7 @@ use anyhow::{Context as _, Error};
 use lazycell::LazyCell;
 use tracing::{debug, instrument, trace};
 
+pub use self::backend::CompilerBackend;
 pub use self::build_config::UserIntent;
 pub use self::build_config::{BuildConfig, CompileMode, MessageFormat, TimingOutput};
 pub use self::build_context::{
@@ -140,13 +143,13 @@ pub trait Executor: Send + Sync + 'static {
     }
 }
 
-/// A `DefaultExecutor` calls rustc without doing anything else. It is Cargo's
+/// A `DefaultExecutor` calls the selected compiler without doing anything else. It is Cargo's
 /// default behaviour.
 #[derive(Copy, Clone)]
 pub struct DefaultExecutor;
 
 impl Executor for DefaultExecutor {
-    #[instrument(name = "rustc", skip_all, fields(package = id.name().as_str(), process = cmd.to_string()))]
+    #[instrument(name = "compiler", skip_all, fields(package = id.name().as_str(), process = cmd.to_string()))]
     fn exec(
         &self,
         cmd: &ProcessBuilder,
@@ -171,8 +174,8 @@ impl Executor for DefaultExecutor {
 /// next as part of [`JobQueue::execute`] function which will run everything
 /// in order with proper parallelism.
 #[tracing::instrument(skip(build_runner, jobs, plan, exec))]
-fn compile<'gctx>(
-    build_runner: &mut BuildRunner<'_, 'gctx>,
+fn compile<'gctx, T: CompilerBackend<'gctx>>(
+    build_runner: &mut BuildRunner<'_, 'gctx, T>,
     jobs: &mut JobQueue<'gctx>,
     plan: &mut BuildPlan,
     unit: &Unit,
@@ -194,24 +197,17 @@ fn compile<'gctx>(
         fingerprint::prepare_init(build_runner, unit)?;
 
         let job = if unit.mode.is_run_custom_build() {
-            custom_build::prepare(build_runner, unit)?
+            T::prepare_custom_build(build_runner, unit)?
         } else if unit.mode.is_doc_test() {
             // We run these targets later, so this is just a no-op for now.
             Job::new_fresh()
         } else if build_plan {
-            Job::new_dirty(
-                rustc(build_runner, unit, &exec.clone())?,
-                DirtyReason::FreshBuild,
-            )
+            Job::new_dirty(T::work(build_runner, unit, exec)?, DirtyReason::FreshBuild)
         } else {
             let force = exec.force_rebuild(unit) || force_rebuild;
             let mut job = fingerprint::prepare_target(build_runner, unit, force)?;
             job.before(if job.freshness().is_dirty() {
-                let work = if unit.mode.is_doc() || unit.mode.is_doc_scrape() {
-                    rustdoc(build_runner, unit)?
-                } else {
-                    rustc(build_runner, unit, exec)?
-                };
+                let work = T::work(build_runner, unit, exec)?;
                 work.then(link_targets(build_runner, unit, false)?)
             } else {
                 // We always replay the output cache,
@@ -225,6 +221,7 @@ fn compile<'gctx>(
                     build_runner.files().message_cache_path(unit),
                     build_runner.bcx.build_config.message_format,
                     show_diagnostics,
+                    matches!(bcx.target_data.compiler(), CompilerRef::Sioxc(_)),
                 );
                 // Need to link targets on both the dirty and fresh.
                 work.then(link_targets(build_runner, unit, true)?)
@@ -584,8 +581,8 @@ fn verbose_if_simple_exit_code(err: Error) -> Error {
 
 /// Link the compiled target (often of form `foo-{metadata_hash}`) to the
 /// final target. This must happen during both "Fresh" and "Compile".
-fn link_targets(
-    build_runner: &mut BuildRunner<'_, '_>,
+fn link_targets<T: UnitTargetData>(
+    build_runner: &mut BuildRunner<'_, '_, T>,
     unit: &Unit,
     fresh: bool,
 ) -> CargoResult<Work> {
@@ -1846,6 +1843,8 @@ fn envify(s: &str) -> String {
 /// Configuration of the display of messages emitted by the compiler,
 /// e.g. diagnostics, warnings, errors, and message caching.
 struct OutputOptions {
+    /// Native human diagnostics must not be decoded as rustc JSON messages.
+    native: bool,
     /// What format we're emitting from Cargo itself.
     format: MessageFormat,
     /// Where to write the JSON messages to support playback later if the unit
@@ -1868,7 +1867,7 @@ struct OutputOptions {
 }
 
 impl OutputOptions {
-    fn new(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> OutputOptions {
+    fn new<T: UnitTargetData>(build_runner: &BuildRunner<'_, '_, T>, unit: &Unit) -> OutputOptions {
         let path = build_runner.files().message_cache_path(unit);
         // Remove old cache, ignore ENOENT, which is the common case.
         drop(fs::remove_file(&path));
@@ -1876,6 +1875,10 @@ impl OutputOptions {
         let show_diagnostics =
             build_runner.bcx.gctx.warning_handling().unwrap_or_default() != WarningHandling::Allow;
         OutputOptions {
+            native: matches!(
+                build_runner.bcx.target_data.compiler(),
+                CompilerRef::Sioxc(_)
+            ),
             format: build_runner.bcx.build_config.message_format,
             cache_cell,
             show_diagnostics,
@@ -1930,7 +1933,7 @@ fn on_stderr_line_inner(
     // otherwise it may have other output intermingled (think RUST_LOG or
     // something like that), so skip over everything that doesn't look like a
     // JSON message.
-    if !line.starts_with('{') {
+    if options.native || !line.starts_with('{') {
         state.stderr(line.to_string())?;
         return Ok(true);
     }
@@ -2139,9 +2142,11 @@ fn replay_output_cache(
     path: PathBuf,
     format: MessageFormat,
     show_diagnostics: bool,
+    native: bool,
 ) -> Work {
     let target = target.clone();
     let mut options = OutputOptions {
+        native,
         format,
         cache_cell: None,
         show_diagnostics,

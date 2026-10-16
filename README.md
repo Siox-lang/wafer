@@ -62,7 +62,7 @@ calculation, comparison and fresh/dirty job preparation. Actual native acceptanc
 covers source changes, missing outputs/sidecars, corrupt records and invalidation
 of an old fingerprint before a dirty job. This is API-level freshness support,
 not an enabled Siox build command. The existing job queue now accepts native
-runner state; production work preparation, packaging and update/fetch remain unadapted.
+runner state and native work preparation; packaging and update/fetch remain unadapted.
 Sioxc sidecars do not provide checksum records, so checksum-freshness is rejected.
 
 The compiler adapter API selects `SIOXC`, then `build.sioxc` (including
@@ -84,10 +84,10 @@ planning implementation serves both compilers; `create_sioxc_bcx` exposes the
 Sioxc context and the explicit unit-graph CLI prints that plan. Native acceptance
 covers versioned library units, features, profiles and target filters through
 Cargo's existing planner and host-unit deduplication. Rust std/MSRV handling
-remains Rust-specific. Runner state and preparation accept Sioxc contexts, while
-the high-level compile entry point remains Rust-only. The same job queue can
-execute native work with its existing dependency ordering, jobserver and failure
-handling; no second scheduler is introduced.
+remains Rust-specific. Both backends now use the same `BuildRunner::compile`
+entry point and recursive unit/fingerprint/job pipeline. Typed compiler hooks
+prepare actual Rust or Sioxc work and retain Rust-only build-script/doc handling.
+The same queue supplies dependency ordering, jobserver limits and failure handling.
 Configured Sioxc flags use Cargo's existing precedence: `WAFER_ENCODED_SIOXCFLAGS`
 (unit-separator encoded), then `SIOXCFLAGS` (space separated), then the native
 `target.<host>.sioxcflags` plus matching `target.'cfg(...)'.sioxcflags`, then
@@ -95,9 +95,13 @@ Configured Sioxc flags use Cargo's existing precedence: `WAFER_ENCODED_SIOXCFLAG
 `WAFER_BUILD_SIOXCFLAGS`; arrays merge according to Cargo's existing rules.
 Explicit `--target <host>` retains Cargo's separate host-artifact flag handling.
 Rust flag inputs do not configure Sioxc, and selected Siox flags participate in
-the shared unit identity. This is option selection, not compiler execution.
-Execution and artifact/dep-info collection still need integration, so normal
-build/check/test execution remains disabled.
+the shared unit identity. Native work forwards supported semantic flags (`--std`,
+structural `--top`, lint levels, debug and verbose), while Wafer owns source,
+output, dep-info and mode arguments. Output/query overrides and unknown switches
+fail before build layouts. Only opt-level0/full-debug and human diagnostics are
+currently mapped; other optimization/debug profiles, Rust backend flags and
+native JSON diagnostics fail explicitly. CLI build/check/test execution remains
+disabled until complete input/cache and library contracts are ready.
 Compiled-library formats are not emulated.
 
 Embedded users can construct a sandboxed Wafer context with
@@ -111,17 +115,20 @@ wrappers, sysroot search paths and documentation commands stay Rust-only.
 The shared `BuildRunner` also prepares Sioxc jobservers, layouts, output caches
 and collision checks. Its dry-run collects native design objects separately
 from executable tests; unsupported artifacts and Rust LTO options fail before
-layout creation. Callers still supply validated invocation arguments. This
-does not yet prepare native work for the high-level compile entry point or
-enable CLI builds.
+layout creation. The native work adapter now supplies validated invocation
+arguments, uses the shared Executor and streamed diagnostic cache, collects real
+sidecars with invocation-time anchors, and requires a nonempty regular artifact
+before updating fingerprints. Native diagnostics remain native human text,
+never synthetic rustc JSON. This API support does not enable CLI builds.
 
 The artifact adapter also uses Cargo's `CompilationFiles` hashes,
 output-name cache and planned uplift/export paths, probing Sioxc's actual native object/test
 filenames instead of inventing Rust library formats. Its package/version/mode/
 feature/flag namespaces include compiler executable identity but are not a
 complete toolchain or compiled-library ABI key. External-tool/input tracking,
-reusable library metadata and production native work preparation/collection
-remain required. Internal queue acceptance runs independently emitted native
+reusable library metadata and wider profile/diagnostic support remain required.
+Native objects use Cargo's actual uplift/export work on dirty and fresh jobs,
+including restoring deleted destinations without recompiling. Queue acceptance runs independently emitted native
 objects and test binaries with one/two-job limits, fresh skips, dependency rebuilds,
 failed-prerequisite blocking and keep-going. It also verifies Sioxc timing reports
 and preserves Cargo's Rust timing report. Native acceptance verifies actual outputs
@@ -148,14 +155,19 @@ Shared native fingerprint acceptance uses them too:
 `cargo test -p cargo --lib compiler::fingerprint::tests -- --ignored`.
 Native scheduling acceptance uses the same compiler/std variables:
 `cargo test -p cargo --lib compiler::job_queue::tests -- --ignored`.
+Shared compile-entry/flag/output acceptance uses them too:
+`cargo test -p cargo --lib compiler::sioxc::tests -- --include-ignored`.
 
 Adapter validation: 23 executable CLI/Git/metadata/planning tests, four source-tracking
 regressions covering both tools, two actual Sioxc toolchain integration
-tests and 171 library tests (including 143 upstream Cargo tests and the explicitly
-enabled native compiler-selection, shared-planning, process-setup, artifact, runner, fingerprint and scheduling tests) pass, along with
+tests and 174 library tests (including 143 upstream Cargo tests and the explicitly
+enabled native compiler-selection, shared-planning, process-setup, artifact, runner,
+fingerprint, scheduling and work-preparation tests) pass, along with
 formatting and strict relevant-target Clippy. Metadata/unit graphs and features match Cargo, Git pins
-are retained, and the reference Cargo binary still builds and runs a native path
-dependency project. This is not Cargo-driven Siox build support. The full
+are retained, and the reference Cargo binary still builds/runs a native path
+dependency project, its build script, doctest and timing report. API-level native
+compilation is exercised; this is not complete Cargo-compatible Siox project-build
+support or an enabled build command. The full
 upstream Cargo integration suite is not yet validated. The
 local compiler query branch passed its Rust/native/query tests but its full
 default and bitpack corpora each have five failures despite its864 default and843
